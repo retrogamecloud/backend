@@ -1,0 +1,102 @@
+version: '3.8'
+
+networks:
+  gamehub-network:
+    name: gamehub-network
+    driver: bridge
+
+volumes:
+  postgres-data:
+
+services:
+  # Base de datos única PostgreSQL
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: gamehub-postgres-db
+    environment:
+      POSTGRES_DB: retrogamecloud
+      POSTGRES_USER: gamecloud
+      POSTGRES_PASSWORD: gamecloud
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - gamehub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gamecloud -d retrogamecloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Servicio centralizado de base de datos
+  database:
+    image: retrogamehub/database:latest
+    container_name: gamehub-database-service
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://gamecloud:gamecloud@postgres-db:5432/retrogamecloud
+      JWT_SECRET: ${JWT_SECRET:-change_this_secret_in_production}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    networks:
+      - gamehub-network
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  # API Gateway
+  kong:
+    image: retrogamehub/kong:latest
+    container_name: gamehub-kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+    ports:
+      - "8000:8000"
+      - "8445:8443"
+      - "8001:8001"
+    networks:
+      - gamehub-network
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    image: retrogamehub/frontend:latest
+    container_name: gamehub-frontend
+    environment:
+      NODE_ENV: production
+      PORT: 8081
+      API_GATEWAY_URL: http://kong:8000
+      CDN_BASE_URL: http://localhost:8086
+    depends_on:
+      - kong
+      - games-cdn
+    ports:
+      - "8081:8081"
+    networks:
+      - gamehub-network
+    restart: unless-stopped
+
+  # Games CDN
+  games-cdn:
+    image: retrogamehub/gamescdn:latest
+    container_name: gamehub-games-cdn
+    ports:
+      - "8086:80"
+    networks:
+      - gamehub-network
+    restart: unless-stopped
