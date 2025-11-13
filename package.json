@@ -1,0 +1,18 @@
+{
+  "name": "database-service",
+  "version": "1.0.0",
+  "description": "Servicio centralizado para la gestión de la base de datos única de RetroGameCloud.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "pg": "^8.11.1",
+    "express": "^4.18.2",
+    "bcrypt": "^5.1.1",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5"
+  }
+  ,
+  "type": "module"
+}
