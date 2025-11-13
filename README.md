@@ -66,6 +66,9 @@ Servicio backend unificado para RetroGameCloud. Consolida autenticación, usuari
 
 ```bash
 git clone https://github.com/retrogamecloud/database.git
+git clone https://github.com/retrogamecloud/frontend.git
+git clone https://github.com/retrogamecloud/infrastructure.git
+git clone https://github.com/retrogamecloud/kong.git
 cd database
 ```
 
@@ -308,6 +311,4 @@ Este servicio unifica lo que antes eran 5 microservicios independientes:
 - ✅ Base de datos única con esquema coherente
 - ✅ Despliegue simplificado
 
-## 📄 Licencia
 
-MIT License - RetroGameCloud 2025
