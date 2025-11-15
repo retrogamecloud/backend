@@ -247,6 +247,26 @@ app.get('/games/:gameId', async (req, res) => {
   }
 });
 
+// Alias para compatibilidad con frontend - Rankings por juego
+app.get('/api/rankings/games/:gameId', async (req, res) => {
+  try {
+    const query = `
+      SELECT u.username, s.score, s.created_at 
+      FROM scores s
+      JOIN users u ON s.user_id = u.id
+      JOIN games g ON s.game_id = g.id
+      WHERE g.name = $1
+      ORDER BY s.score DESC
+      LIMIT 10
+    `;
+    const { rows } = await pool.query(query, [req.params.gameId]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error en rankings:', err.message);
+    res.json([]);
+  }
+});
+
 // ============================================================================
 // ENDPOINTS DE PUNTUACIONES
 // ============================================================================
@@ -255,6 +275,65 @@ app.get('/games/:gameId', async (req, res) => {
 app.post('/', authMiddleware, async (req, res) => {
   try {
     console.log('📥 POST / recibido');
+    console.log('📦 Body:', req.body);
+    console.log('🔑 User from token:', req.user);
+    
+    const { game, score } = req.body;
+    const userId = req.user.userId;
+    
+    // Buscar o crear el juego
+    let gameRecord = await pool.query('SELECT id FROM games WHERE name = $1', [game]);
+    if (gameRecord.rows.length === 0) {
+      console.log(`🎮 Creando nuevo juego: ${game}`);
+      const slug = game.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const newGame = await pool.query(
+        'INSERT INTO games (slug, name, description) VALUES ($1, $2, $3) RETURNING id',
+        [slug, game, `Juego ${game}`]
+      );
+      gameRecord = newGame;
+    }
+    
+    const gameId = gameRecord.rows[0].id;
+    console.log(`🎮 Game ID: ${gameId}`);
+    
+    // Guardar o actualizar la puntuación
+    const existingScore = await pool.query(
+      'SELECT id, score FROM scores WHERE user_id = $1 AND game_id = $2',
+      [userId, gameId]
+    );
+    
+    if (existingScore.rows.length > 0) {
+      console.log(`📊 Puntuación existente: ${existingScore.rows[0].score}, nueva: ${score}`);
+      if (score > existingScore.rows[0].score) {
+        await pool.query(
+          'UPDATE scores SET score = $1, updated_at = NOW() WHERE id = $2',
+          [score, existingScore.rows[0].id]
+        );
+        console.log(`✅ Puntuación actualizada`);
+        res.json({ message: 'Puntuación actualizada', score });
+      } else {
+        console.log(`ℹ️ Puntuación existente es mayor`);
+        res.json({ message: 'Puntuación existente es mayor', score: existingScore.rows[0].score });
+      }
+    } else {
+      console.log(`✨ Creando nueva puntuación`);
+      await pool.query(
+        'INSERT INTO scores (user_id, game_id, score) VALUES ($1, $2, $3)',
+        [userId, gameId, score]
+      );
+      console.log(`✅ Puntuación guardada`);
+      res.json({ message: 'Puntuación guardada', score });
+    }
+  } catch (err) {
+    console.error('❌ Error al guardar puntuación:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Alias para compatibilidad con frontend
+app.post('/api/scores/', authMiddleware, async (req, res) => {
+  try {
+    console.log('📥 POST /api/scores/ recibido (alias)');
     console.log('📦 Body:', req.body);
     console.log('🔑 User from token:', req.user);
     
