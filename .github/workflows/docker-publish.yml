@@ -11,7 +11,7 @@ on:
 env:
   REGISTRY_GHCR: ghcr.io
   REGISTRY_DOCKERHUB: docker.io
-  IMAGE_NAME: retrogamecloud/database
+  IMAGE_NAME: retrogamecloud/backend
 
 jobs:
   build-and-push:
@@ -57,8 +57,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ghcr.io/retrogamecloud/database
-            retrogamehub/database
+            ghcr.io/retrogamecloud/backend
+            retrogamehub/backend
           tags: |
             type=raw,value=latest
             type=raw,value=${{ steps.version.outputs.version }}
