@@ -247,6 +247,26 @@ app.get('/games/:gameId', async (req, res) => {
   }
 });
 
+// Alias para compatibilidad con frontend - Rankings por juego
+app.get('/api/rankings/games/:gameId', async (req, res) => {
+  try {
+    const query = `
+      SELECT u.username, s.score, s.created_at 
+      FROM scores s
+      JOIN users u ON s.user_id = u.id
+      JOIN games g ON s.game_id = g.id
+      WHERE g.name = $1
+      ORDER BY s.score DESC
+      LIMIT 10
+    `;
+    const { rows } = await pool.query(query, [req.params.gameId]);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error en rankings:', err.message);
+    res.json([]);
+  }
+});
+
 // ============================================================================
 // ENDPOINTS DE PUNTUACIONES
 // ============================================================================
