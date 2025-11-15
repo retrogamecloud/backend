@@ -1,0 +1,64 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 223B 0.0s done
+#1 DONE 0.0s
+
+#2 [auth] library/node:pull token for registry-1.docker.io
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:20-alpine
+#3 DONE 1.3s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 88B 0.0s done
+#4 DONE 0.0s
+
+#5 [1/4] FROM docker.io/library/node:20-alpine@sha256:6178e78b972f79c335df281f4b7674a2d85071aae2af020ffa39f0a770265435
+#5 resolve docker.io/library/node:20-alpine@sha256:6178e78b972f79c335df281f4b7674a2d85071aae2af020ffa39f0a770265435 0.0s done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 57.98kB 2.9s done
+#6 DONE 2.9s
+
+#7 [2/4] WORKDIR /app
+#7 CACHED
+
+#8 [3/4] COPY . .
+#8 DONE 0.1s
+
+#9 [4/4] RUN npm install --production
+#9 0.241 npm warn config production Use `--omit=dev` instead.
+#9 1.840 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+#9 1.864 npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+#9 1.970 npm warn deprecated are-we-there-yet@2.0.0: This package is no longer supported.
+#9 1.998 npm warn deprecated npmlog@5.0.1: This package is no longer supported.
+#9 2.001 npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+#9 2.014 npm warn deprecated gauge@3.0.2: This package is no longer supported.
+#9 2.670 
+#9 2.670 added 73 packages, and audited 157 packages in 2s
+#9 2.670 
+#9 2.670 17 packages are looking for funding
+#9 2.670   run `npm fund` for details
+#9 2.671 
+#9 2.671 found 0 vulnerabilities
+#9 2.672 npm notice
+#9 2.672 npm notice New major version of npm available! 10.8.2 -> 11.6.2
+#9 2.672 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.2
+#9 2.672 npm notice To update run: npm install -g npm@11.6.2
+#9 2.672 npm notice
+#9 DONE 2.8s
+
+#10 exporting to image
+#10 exporting layers
+#10 exporting layers 0.4s done
+#10 exporting manifest sha256:e95ead9ce0575fa0c8c15d36a58b7b6821d04b5f786ab6edccdc20ea872d2d12 0.0s done
+#10 exporting config sha256:a8bf0159b539430a6285d321a2d6d466f06fb234d768c5c4ba24353b37334ab1 0.0s done
+#10 exporting attestation manifest sha256:bd54772f4425ae657661e7fa8e56934dfd3193069aade3288ebed326af3155ec 0.0s done
+#10 exporting manifest list sha256:0049b918976aa9ffc71476d0daa30164b958885b2759842295d1d8076f5f7bbe 0.0s done
+#10 naming to ghcr.io/retrogamecloud/database:latest
+#10 naming to ghcr.io/retrogamecloud/database:latest done
+#10 unpacking to ghcr.io/retrogamecloud/database:latest
+#10 unpacking to ghcr.io/retrogamecloud/database:latest 0.2s done
+#10 DONE 0.7s
