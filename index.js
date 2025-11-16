@@ -133,7 +133,9 @@ async function procesarLoginUsuario(username, password) {
 async function procesarRegistroUsuario(username, password, extraData = {}) {
   const hashedPassword = await bcrypt.hash(password, 10);
   const user = await crearUsuario({ username, password_hash: hashedPassword, ...extraData });
-  return user;
+  // Eliminar password_hash de la respuesta
+  const { password_hash, ...userWithoutPassword } = user;
+  return userWithoutPassword;
 }
 
 // ============================================================================
@@ -165,8 +167,13 @@ app.post('/register', asyncHandler(async (req, res) => {
 // Consultar usuario por username
 app.get('/users/:username', asyncHandler(async (req, res) => {
   const user = await obtenerUsuarioPorUsername(req.params.username);
-  if (user) res.json(user);
-  else res.status(404).json({ error: 'Usuario no encontrado' });
+  if (user) {
+    // Eliminar password_hash de la respuesta
+    const { password_hash, ...userWithoutPassword } = user;
+    res.json(userWithoutPassword);
+  } else {
+    res.status(404).json({ error: 'Usuario no encontrado' });
+  }
 }));
 
 // Registro de usuario (compatibilidad frontend antiguo)
