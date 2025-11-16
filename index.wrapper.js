@@ -21,9 +21,7 @@ testConnection(pool).then(async (connected) => {
     
     try {
       // Crear aplicación
-      console.log('🔧 Creando aplicación...');
       const app = await createApp(pool, SECRET_KEY);
-      console.log('✅ Aplicación creada exitosamente');
       
       // Iniciar servidor
       const server = app.listen(PORT, () => {
