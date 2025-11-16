@@ -77,6 +77,44 @@ const authMiddleware = (req, res, next) => {
 };
 
 // ============================================================================
+// FUNCIONES HELPER DE AUTENTICACIÓN
+// ============================================================================
+
+// Función helper para procesar login de usuario
+async function procesarLoginUsuario(username, password) {
+  const user = await obtenerUsuarioPorUsername(username);
+  if (!user) {
+    throw { status: 401, message: 'Usuario no encontrado' };
+  }
+  
+  const passwordMatch = await bcrypt.compare(password, user.password_hash);
+  if (!passwordMatch) {
+    throw { status: 401, message: 'Contraseña incorrecta' };
+  }
+  
+  const token = jwt.sign(
+    { userId: user.id, username: user.username },
+    SECRET_KEY,
+    { expiresIn: '24h' }
+  );
+  
+  return { 
+    accessToken: token,
+    user: {
+      id: user.id,
+      username: user.username
+    }
+  };
+}
+
+// Función helper para procesar registro de usuario
+async function procesarRegistroUsuario(username, password, extraData = {}) {
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const user = await crearUsuario({ username, password_hash: hashedPassword, ...extraData });
+  return user;
+}
+
+// ============================================================================
 // ENDPOINTS DE AUTENTICACIÓN
 // ============================================================================
 
@@ -85,35 +123,13 @@ app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   console.log('Login attempt:', { username });
   try {
-    const user = await obtenerUsuarioPorUsername(username);
-    if (!user) {
-      console.log('Usuario no encontrado:', username);
-      return res.status(401).json({ error: 'Usuario no encontrado' });
-    }
-    
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
-    console.log('Password match:', passwordMatch);
-    if (!passwordMatch) {
-      console.log('Contraseña incorrecta');
-      return res.status(401).json({ error: 'Contraseña incorrecta' });
-    }
-    
-    // Generar token JWT
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      SECRET_KEY,
-      { expiresIn: '24h' }
-    );
-    
-    res.json({ 
-      accessToken: token,
-      user: {
-        id: user.id,
-        username: user.username
-      }
-    });
+    const result = await procesarLoginUsuario(username, password);
+    res.json(result);
   } catch (err) {
     console.error('Error en login:', err.message);
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -122,8 +138,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, password, ...rest } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await crearUsuario({ username, password_hash: hashedPassword, ...rest });
+    const user = await procesarRegistroUsuario(username, password, rest);
     res.status(201).json(user);
   } catch (err) {
     console.error('Error en registro:', err.message);
@@ -138,8 +153,7 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/register', async (req, res) => {
   try {
     const { username, password, ...rest } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await crearUsuario({ username, password_hash: hashedPassword, ...rest });
+    const user = await procesarRegistroUsuario(username, password, rest);
     res.status(201).json(user);
   } catch (err) {
     console.error('Error en registro:', err.message);
@@ -181,35 +195,13 @@ app.post('/auth/login', async (req, res) => {
   const { username, password } = req.body;
   console.log('Login attempt:', { username });
   try {
-    const user = await obtenerUsuarioPorUsername(username);
-    if (!user) {
-      console.log('Usuario no encontrado:', username);
-      return res.status(401).json({ error: 'Usuario no encontrado' });
-    }
-    
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
-    console.log('Password match:', passwordMatch);
-    if (!passwordMatch) {
-      console.log('Contraseña incorrecta');
-      return res.status(401).json({ error: 'Contraseña incorrecta' });
-    }
-    
-    // Generar token JWT
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      SECRET_KEY,
-      { expiresIn: '24h' }
-    );
-    
-    res.json({ 
-      accessToken: token,
-      user: {
-        id: user.id,
-        username: user.username
-      }
-    });
+    const result = await procesarLoginUsuario(username, password);
+    res.json(result);
   } catch (err) {
     console.error('Error en login:', err.message);
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 });
