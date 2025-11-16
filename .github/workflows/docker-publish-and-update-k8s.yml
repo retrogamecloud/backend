@@ -5,12 +5,12 @@ on:
     branches:
       - main
     paths-ignore:
+      - '**.md'
+      - '.gitignore'
   pull_request:
     branches:
       - main
     paths-ignore:
-      - '**.md'
-      - '.gitignore'
       - '**.md'
       - '.gitignore'
 
@@ -159,10 +159,10 @@ jobs:
           VERSION="${{ steps.image_info.outputs.version }}"
           
           # Actualizar la imagen en el manifiesto usando sed
-          sed -i "s|image: ghcr.io/retrogamecloud/backend:.*|image: ghcr.io/retrogamecloud/backend:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|image: retrogamehub/backend:.*|image: retrogamehub/backend:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
           
           # Actualizar el comentario con la versión
-          sed -i "s|# Imagen del backend desde GHCR.*|# Imagen del backend desde GHCR - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|# Imagen del backend desde DockerHub.*|# Imagen del backend desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
           
           echo "✅ Manifiesto actualizado con imagen: ${IMAGE_TAG}"
 
