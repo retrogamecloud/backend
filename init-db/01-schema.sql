@@ -63,3 +63,17 @@ CREATE TABLE IF NOT EXISTS score_history (
   new_score BIGINT,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Insertar juegos disponibles
+INSERT INTO games (slug, name, description, year, developer) VALUES
+  ('doom', 'DOOM', 'Classic first-person shooter', 1993, 'id Software'),
+  ('wolf', 'Wolfenstein 3D', 'The game that started it all', 1992, 'id Software'),
+  ('duke3d', 'Duke Nukem 3D', 'Hail to the king, baby!', 1996, '3D Realms'),
+  ('digger', 'Digger', 'Classic arcade game', 1983, 'Windmill Software'),
+  ('tetris', 'Tetris', 'The ultimate puzzle game', 1984, 'Alexey Pajitnov'),
+  ('dangerousdave2', 'Dangerous Dave 2', 'Platform adventure', 1990, 'John Romero'),
+  ('lostvikings', 'The Lost Vikings', 'Puzzle platformer', 1992, 'Silicon & Synapse'),
+  ('mortalkombat', 'Mortal Kombat', 'Fighting game', 1992, 'Midway Games'),
+  ('streetfighter2', 'Street Fighter II', 'Fighting game classic', 1991, 'Capcom'),
+  ('heroesofmightandmagic2', 'Heroes of Might and Magic II', 'Turn-based strategy', 1996, 'New World Computing')
+ON CONFLICT (slug) DO NOTHING;
