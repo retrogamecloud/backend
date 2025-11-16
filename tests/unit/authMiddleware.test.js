@@ -64,7 +64,7 @@ describe('Auth Middleware - Tests Completos', () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    test('debe rechazar token expirado', () => {
+    test('debe rechazar token expirado', (done) => {
       // Crear token con expiración inmediata
       const expiredToken = generateToken({ userId: 1 }, SECRET_KEY, '0s');
       req.headers.authorization = `Bearer ${expiredToken}`;
@@ -76,6 +76,7 @@ describe('Auth Middleware - Tests Completos', () => {
 
         expect(res.status).toHaveBeenCalledWith(401);
         expect(next).not.toHaveBeenCalled();
+        done();
       }, 100);
     });
 
