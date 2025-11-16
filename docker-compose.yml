@@ -32,13 +32,13 @@ services:
 
   # Servicio centralizado de base de datos
   database:
-    build: .
-    image: retrogamecloud/database:local
+    image: retrogamehub/backend:local
     container_name: gamehub-database-service
     environment:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgresql://gamecloud:gamecloud@postgres-db:5432/retrogamecloud
+      JWT_SECRET: tu_clave_secreta_super_segura_cambiar_en_produccion
     depends_on:
       postgres-db:
         condition: service_healthy
@@ -50,8 +50,7 @@ services:
 
   # API Gateway
   kong:
-    build: ../kong
-    image: retrogamecloud/kong:local
+    image: retrogamehub/kong:local
     container_name: gamehub-kong
     environment:
       KONG_DATABASE: "off"
@@ -77,8 +76,7 @@ services:
 
   # Frontend & CDN
   frontend:
-    build: ../frontend
-    image: retrogamecloud/frontend:local
+    image: retrogamehub/frontend:local
     container_name: gamehub-frontend
     environment:
       NODE_ENV: production
@@ -95,8 +93,7 @@ services:
     restart: unless-stopped
 
   games-cdn:
-    build: ../infraestructure/cdn
-    image: retrogamecloud/games-cdn:local
+    image: retrogamehub/gamescdn:local
     container_name: gamehub-games-cdn
     ports:
       - "8086:80"

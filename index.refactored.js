@@ -38,13 +38,13 @@ export async function createApp(pool, secret) {
   });
 
   // Rutas de autenticación
-  app.use('/api/auth', await createAuthRoutes(pool, secret));
+  app.use('/api/auth', createAuthRoutes(pool, secret));
 
   // Rutas de rankings
-  app.use('/api', await createRankingRoutes(pool));
+  app.use('/api', createRankingRoutes(pool));
 
   // Rutas de scores
-  app.use('/api', await createScoreRoutes(pool, secret));
+  app.use('/api', createScoreRoutes(pool, secret));
 
   // Manejo de rutas no encontradas
   app.use((req, res) => {
