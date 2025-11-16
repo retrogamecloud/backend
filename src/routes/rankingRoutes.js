@@ -8,7 +8,7 @@ import * as rankingController from '../controllers/rankingController.js';
 /**
  * Crea las rutas de rankings
  */
-export async function createRankingRoutes(pool) {
+export function createRankingRoutes(pool) {
   const router = express.Router();
 
   // Ranking global

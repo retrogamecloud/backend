@@ -6,7 +6,7 @@ import express from 'express';
 import * as scoreController from '../controllers/scoreController.js';
 import { authMiddleware } from '../middleware/authMiddleware.js';
 
-export async function createScoreRoutes(pool, secret) {
+export function createScoreRoutes(pool, secret) {
   const router = express.Router();
 
   // POST /api/scores - Guardar puntuación (requiere autenticación)

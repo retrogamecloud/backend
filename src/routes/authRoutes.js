@@ -12,11 +12,11 @@ import { authMiddleware } from '../middleware/authMiddleware.js';
  * @param {string} secret - Clave secreta para JWT
  * @returns {Router} Router de Express
  */
-export async function createAuthRoutes(pool, secret) {
+export function createAuthRoutes(pool, secret) {
   const router = express.Router();
 
-  // Rutas públicas (register es async, necesita await)
-  router.post('/register', await authController.register(pool, secret));
+  // Rutas públicas
+  router.post('/register', authController.register(pool, secret));
   router.post('/login', authController.login(pool, secret));
 
   // Rutas protegidas

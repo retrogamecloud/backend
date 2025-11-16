@@ -8,7 +8,7 @@ import * as authService from '../services/authService.js';
 /**
  * Controlador para registro de usuario
  */
-export async function register(pool, secret) {
+export function register(pool, secret) {
   return async (req, res) => {
     const { username, password, email, display_name, avatar_url, bio } = req.body;
 
