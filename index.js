@@ -82,7 +82,7 @@ const authMiddleware = (req, res, next) => {
 
 // Login de usuario (compatibilidad Kong directo)
 app.post('/api/auth/login', async (req, res) => {
-  const { username, password_hash } = req.body;
+  const { username, password } = req.body;
   console.log('Login attempt:', { username });
   try {
     const user = await obtenerUsuarioPorUsername(username);
@@ -91,7 +91,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Usuario no encontrado' });
     }
     
-    const passwordMatch = await bcrypt.compare(password_hash, user.password_hash);
+    const passwordMatch = await bcrypt.compare(password, user.password_hash);
     console.log('Password match:', passwordMatch);
     if (!passwordMatch) {
       console.log('Contraseña incorrecta');
@@ -121,8 +121,8 @@ app.post('/api/auth/login', async (req, res) => {
 // Registro de usuario (compatibilidad Kong directo)
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { username, password_hash, ...rest } = req.body;
-    const hashedPassword = await bcrypt.hash(password_hash, 10);
+    const { username, password, ...rest } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
     const user = await crearUsuario({ username, password_hash: hashedPassword, ...rest });
     res.status(201).json(user);
   } catch (err) {
@@ -137,8 +137,8 @@ app.post('/api/auth/register', async (req, res) => {
 // Registro directo (compatibilidad Kong)
 app.post('/register', async (req, res) => {
   try {
-    const { username, password_hash, ...rest } = req.body;
-    const hashedPassword = await bcrypt.hash(password_hash, 10);
+    const { username, password, ...rest } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
     const user = await crearUsuario({ username, password_hash: hashedPassword, ...rest });
     res.status(201).json(user);
   } catch (err) {
@@ -164,8 +164,8 @@ app.get('/users/:username', async (req, res) => {
 // Registro de usuario (compatibilidad frontend antiguo)
 app.post('/auth/register', async (req, res) => {
   try {
-    const { username, password_hash, ...rest } = req.body;
-    const hashedPassword = await bcrypt.hash(password_hash, 10);
+    const { username, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
     const user = await crearUsuario({ username, password_hash: hashedPassword, ...rest });
     res.status(201).json(user);
   } catch (err) {
@@ -179,7 +179,7 @@ app.post('/auth/register', async (req, res) => {
 
 // Login de usuario (compatibilidad Kong y frontend)
 app.post('/auth/login', async (req, res) => {
-  const { username, password_hash } = req.body;
+  const { username, password } = req.body;
   console.log('Login attempt:', { username });
   try {
     const user = await obtenerUsuarioPorUsername(username);
@@ -188,7 +188,7 @@ app.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Usuario no encontrado' });
     }
     
-    const passwordMatch = await bcrypt.compare(password_hash, user.password_hash);
+    const passwordMatch = await bcrypt.compare(password, user.password_hash);
     console.log('Password match:', passwordMatch);
     if (!passwordMatch) {
       console.log('Contraseña incorrecta');
@@ -230,16 +230,18 @@ app.get('/health', (req, res) => {
 // Ranking por juego
 app.get('/games/:gameId', async (req, res) => {
   try {
+    // Normalizar gameId a slug
+    const gameSlug = req.params.gameId.toLowerCase().replace(/[^a-z0-9]+/g, '');
     const query = `
       SELECT u.username, s.score, s.created_at 
       FROM scores s
       JOIN users u ON s.user_id = u.id
       JOIN games g ON s.game_id = g.id
-      WHERE g.name = $1
+      WHERE g.slug = $1
       ORDER BY s.score DESC
       LIMIT 10
     `;
-    const { rows } = await pool.query(query, [req.params.gameId]);
+    const { rows } = await pool.query(query, [gameSlug]);
     res.json(rows);
   } catch (err) {
     console.error('Error en rankings:', err.message);
@@ -250,16 +252,18 @@ app.get('/games/:gameId', async (req, res) => {
 // Alias para compatibilidad con frontend - Rankings por juego
 app.get('/api/rankings/games/:gameId', async (req, res) => {
   try {
+    // Normalizar gameId a slug
+    const gameSlug = req.params.gameId.toLowerCase().replace(/[^a-z0-9]+/g, '');
     const query = `
       SELECT u.username, s.score, s.created_at 
       FROM scores s
       JOIN users u ON s.user_id = u.id
       JOIN games g ON s.game_id = g.id
-      WHERE g.name = $1
+      WHERE g.slug = $1
       ORDER BY s.score DESC
       LIMIT 10
     `;
-    const { rows } = await pool.query(query, [req.params.gameId]);
+    const { rows } = await pool.query(query, [gameSlug]);
     res.json(rows);
   } catch (err) {
     console.error('Error en rankings:', err.message);
@@ -340,16 +344,15 @@ app.post('/api/scores/', authMiddleware, async (req, res) => {
     const { game, score } = req.body;
     const userId = req.user.userId;
     
-    // Buscar o crear el juego
-    let gameRecord = await pool.query('SELECT id FROM games WHERE name = $1', [game]);
+    // Normalizar el nombre del juego a slug
+    const gameSlug = game.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    console.log(`🎯 Buscando juego con slug: ${gameSlug}`);
+    
+    // Buscar el juego por slug
+    let gameRecord = await pool.query('SELECT id FROM games WHERE slug = $1', [gameSlug]);
     if (gameRecord.rows.length === 0) {
-      console.log(`🎮 Creando nuevo juego: ${game}`);
-      const slug = game.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      const newGame = await pool.query(
-        'INSERT INTO games (slug, name, description) VALUES ($1, $2, $3) RETURNING id',
-        [slug, game, `Juego ${game}`]
-      );
-      gameRecord = newGame;
+      console.log(`❌ Juego no encontrado: ${gameSlug}`);
+      return res.status(404).json({ error: `Juego no encontrado: ${game}` });
     }
     
     const gameId = gameRecord.rows[0].id;
