@@ -227,22 +227,27 @@ app.get('/health', (req, res) => {
 // ENDPOINTS DE RANKINGS
 // ============================================================================
 
+// Función helper para obtener ranking por juego
+async function obtenerRankingPorJuego(gameId) {
+  const gameSlug = gameId.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const query = `
+    SELECT u.username, s.score, s.created_at 
+    FROM scores s
+    JOIN users u ON s.user_id = u.id
+    JOIN games g ON s.game_id = g.id
+    WHERE g.slug = $1
+    ORDER BY s.score DESC
+    LIMIT 10
+  `;
+  const { rows } = await pool.query(query, [gameSlug]);
+  return rows;
+}
+
 // Ranking por juego
 app.get('/games/:gameId', async (req, res) => {
   try {
-    // Normalizar gameId a slug
-    const gameSlug = req.params.gameId.toLowerCase().replace(/[^a-z0-9]+/g, '');
-    const query = `
-      SELECT u.username, s.score, s.created_at 
-      FROM scores s
-      JOIN users u ON s.user_id = u.id
-      JOIN games g ON s.game_id = g.id
-      WHERE g.slug = $1
-      ORDER BY s.score DESC
-      LIMIT 10
-    `;
-    const { rows } = await pool.query(query, [gameSlug]);
-    res.json(rows);
+    const ranking = await obtenerRankingPorJuego(req.params.gameId);
+    res.json(ranking);
   } catch (err) {
     console.error('Error en rankings:', err.message);
     res.json([]);
@@ -252,19 +257,8 @@ app.get('/games/:gameId', async (req, res) => {
 // Alias para compatibilidad con frontend - Rankings por juego
 app.get('/api/rankings/games/:gameId', async (req, res) => {
   try {
-    // Normalizar gameId a slug
-    const gameSlug = req.params.gameId.toLowerCase().replace(/[^a-z0-9]+/g, '');
-    const query = `
-      SELECT u.username, s.score, s.created_at 
-      FROM scores s
-      JOIN users u ON s.user_id = u.id
-      JOIN games g ON s.game_id = g.id
-      WHERE g.slug = $1
-      ORDER BY s.score DESC
-      LIMIT 10
-    `;
-    const { rows } = await pool.query(query, [gameSlug]);
-    res.json(rows);
+    const ranking = await obtenerRankingPorJuego(req.params.gameId);
+    res.json(ranking);
   } catch (err) {
     console.error('Error en rankings:', err.message);
     res.json([]);
