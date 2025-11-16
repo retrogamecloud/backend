@@ -182,7 +182,7 @@ describe('Middleware - Validación y Autenticación', () => {
   describe('Validación de tokens JWT', () => {
     test('debe validar estructura de token', () => {
       const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
-      const parts = token.split('.');
+      const parts = validToken.split('.');
       
       expect(parts).toHaveLength(3);
       expect(parts[0]).toBeTruthy(); // encabezado

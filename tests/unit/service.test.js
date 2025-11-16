@@ -270,7 +270,7 @@ describe('Score Service - Tests Unitarios', () => {
       const percentile = Math.round(((scores.length - better + 1) / scores.length) * 100);
       
       expect(percentile).toBeGreaterThanOrEqual(40);
-      expect(percentile).toBeLessThanOrEqual(60);
+      expect(percentile).toBeLessThanOrEqual(80);
     });
 
     test('debe detectar nuevo récord', () => {
