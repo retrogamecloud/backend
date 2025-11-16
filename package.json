@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "start:refactored": "node index.wrapper.js",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:unit": "NODE_OPTIONS=--experimental-vm-modules jest tests/unit",
     "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest tests/integration",
