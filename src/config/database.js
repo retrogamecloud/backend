@@ -33,3 +33,4 @@ export async function testConnection(pool) {
     return false;
   }
 }
+// CI/CD test
