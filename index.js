@@ -15,7 +15,13 @@ const { Pool } = pg;
 // ============================================================================
 
 const app = express();
-const SECRET_KEY = process.env.JWT_SECRET || 'tu_clave_secreta_super_segura_cambiar_en_produccion';
+
+// Validar que JWT_SECRET esté configurado en producción
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  console.error('ERROR: JWT_SECRET environment variable is required in production');
+  process.exit(1);
+}
+const SECRET_KEY = process.env.JWT_SECRET || 'test-secret-for-development-only';
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
@@ -77,143 +83,114 @@ const authMiddleware = (req, res, next) => {
 };
 
 // ============================================================================
+// FUNCIONES HELPER DE AUTENTICACIÓN
+// ============================================================================
+
+// Wrapper para manejo de errores centralizado
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch((err) => {
+    console.error('Error:', err.message);
+    
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    
+    if (err.message?.includes('duplicate key') || err.code === '23505') {
+      return res.status(409).json({ error: 'El usuario ya existe' });
+    }
+    
+    res.status(500).json({ error: err.message });
+  });
+};
+
+// Función helper para procesar login de usuario
+async function procesarLoginUsuario(username, password) {
+  const user = await obtenerUsuarioPorUsername(username);
+  if (!user) {
+    throw { status: 401, message: 'Usuario no encontrado' };
+  }
+  
+  const passwordMatch = await bcrypt.compare(password, user.password_hash);
+  if (!passwordMatch) {
+    throw { status: 401, message: 'Contraseña incorrecta' };
+  }
+  
+  const token = jwt.sign(
+    { userId: user.id, username: user.username },
+    SECRET_KEY,
+    { expiresIn: '24h' }
+  );
+  
+  return { 
+    accessToken: token,
+    user: {
+      id: user.id,
+      username: user.username
+    }
+  };
+}
+
+// Función helper para procesar registro de usuario
+async function procesarRegistroUsuario(username, password, extraData = {}) {
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const user = await crearUsuario({ username, password_hash: hashedPassword, ...extraData });
+  // Eliminar password_hash de la respuesta
+  const { password_hash, ...userWithoutPassword } = user;
+  return userWithoutPassword;
+}
+
+// ============================================================================
 // ENDPOINTS DE AUTENTICACIÓN
 // ============================================================================
 
 // Login de usuario (compatibilidad Kong directo)
-app.post('/api/auth/login', async (req, res) => {
-  const { username, password_hash } = req.body;
+app.post('/api/auth/login', asyncHandler(async (req, res) => {
+  const { username, password } = req.body;
   console.log('Login attempt:', { username });
-  try {
-    const user = await obtenerUsuarioPorUsername(username);
-    if (!user) {
-      console.log('Usuario no encontrado:', username);
-      return res.status(401).json({ error: 'Usuario no encontrado' });
-    }
-    
-    const passwordMatch = await bcrypt.compare(password_hash, user.password_hash);
-    console.log('Password match:', passwordMatch);
-    if (!passwordMatch) {
-      console.log('Contraseña incorrecta');
-      return res.status(401).json({ error: 'Contraseña incorrecta' });
-    }
-    
-    // Generar token JWT
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      SECRET_KEY,
-      { expiresIn: '24h' }
-    );
-    
-    res.json({ 
-      accessToken: token,
-      user: {
-        id: user.id,
-        username: user.username
-      }
-    });
-  } catch (err) {
-    console.error('Error en login:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+  const result = await procesarLoginUsuario(username, password);
+  res.json(result);
+}));
 
 // Registro de usuario (compatibilidad Kong directo)
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { username, password_hash, ...rest } = req.body;
-    const hashedPassword = await bcrypt.hash(password_hash, 10);
-    const user = await crearUsuario({ username, password_hash: hashedPassword, ...rest });
-    res.status(201).json(user);
-  } catch (err) {
-    console.error('Error en registro:', err.message);
-    if (err.message.includes('duplicate key') || err.code === '23505') {
-      return res.status(409).json({ error: 'El usuario ya existe' });
-    }
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/auth/register', asyncHandler(async (req, res) => {
+  const { username, password, ...rest } = req.body;
+  const user = await procesarRegistroUsuario(username, password, rest);
+  res.status(201).json(user);
+}));
 
 // Registro directo (compatibilidad Kong)
-app.post('/register', async (req, res) => {
-  try {
-    const { username, password_hash, ...rest } = req.body;
-    const hashedPassword = await bcrypt.hash(password_hash, 10);
-    const user = await crearUsuario({ username, password_hash: hashedPassword, ...rest });
-    res.status(201).json(user);
-  } catch (err) {
-    console.error('Error en registro:', err.message);
-    if (err.message.includes('duplicate key') || err.code === '23505') {
-      return res.status(409).json({ error: 'El usuario ya existe' });
-    }
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/register', asyncHandler(async (req, res) => {
+  const { username, password, ...rest } = req.body;
+  const user = await procesarRegistroUsuario(username, password, rest);
+  res.status(201).json(user);
+}));
 
 // Consultar usuario por username
-app.get('/users/:username', async (req, res) => {
-  try {
-    const user = await obtenerUsuarioPorUsername(req.params.username);
-    if (user) res.json(user);
-    else res.status(404).json({ error: 'Usuario no encontrado' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/users/:username', asyncHandler(async (req, res) => {
+  const user = await obtenerUsuarioPorUsername(req.params.username);
+  if (user) {
+    // Eliminar password_hash de la respuesta
+    const { password_hash, ...userWithoutPassword } = user;
+    res.json(userWithoutPassword);
+  } else {
+    res.status(404).json({ error: 'Usuario no encontrado' });
   }
-});
+}));
 
 // Registro de usuario (compatibilidad frontend antiguo)
-app.post('/auth/register', async (req, res) => {
-  try {
-    const { username, password_hash, ...rest } = req.body;
-    const hashedPassword = await bcrypt.hash(password_hash, 10);
-    const user = await crearUsuario({ username, password_hash: hashedPassword, ...rest });
-    res.status(201).json(user);
-  } catch (err) {
-    console.error('Error en registro:', err.message);
-    if (err.message.includes('duplicate key') || err.code === '23505') {
-      return res.status(409).json({ error: 'El usuario ya existe' });
-    }
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/auth/register', asyncHandler(async (req, res) => {
+  const { username, password } = req.body;
+  const user = await procesarRegistroUsuario(username, password);
+  res.status(201).json(user);
+}));
 
 // Login de usuario (compatibilidad Kong y frontend)
-app.post('/auth/login', async (req, res) => {
-  const { username, password_hash } = req.body;
+app.post('/auth/login', asyncHandler(async (req, res) => {
+  const { username, password } = req.body;
   console.log('Login attempt:', { username });
-  try {
-    const user = await obtenerUsuarioPorUsername(username);
-    if (!user) {
-      console.log('Usuario no encontrado:', username);
-      return res.status(401).json({ error: 'Usuario no encontrado' });
-    }
-    
-    const passwordMatch = await bcrypt.compare(password_hash, user.password_hash);
-    console.log('Password match:', passwordMatch);
-    if (!passwordMatch) {
-      console.log('Contraseña incorrecta');
-      return res.status(401).json({ error: 'Contraseña incorrecta' });
-    }
-    
-    // Generar token JWT
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      SECRET_KEY,
-      { expiresIn: '24h' }
-    );
-    
-    res.json({ 
-      accessToken: token,
-      user: {
-        id: user.id,
-        username: user.username
-      }
-    });
-  } catch (err) {
-    console.error('Error en login:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+  const result = await procesarLoginUsuario(username, password);
+  res.json(result);
+}));
 
 // ============================================================================
 // ENDPOINTS DE SALUD Y UTILIDADES
@@ -227,167 +204,96 @@ app.get('/health', (req, res) => {
 // ENDPOINTS DE RANKINGS
 // ============================================================================
 
+// Función helper para obtener ranking por juego
+async function obtenerRankingPorJuego(gameId) {
+  const gameSlug = gameId.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const query = `
+    SELECT u.username, s.score, s.created_at 
+    FROM scores s
+    JOIN users u ON s.user_id = u.id
+    JOIN games g ON s.game_id = g.id
+    WHERE g.slug = $1
+    ORDER BY s.score DESC
+    LIMIT 10
+  `;
+  const { rows } = await pool.query(query, [gameSlug]);
+  return rows;
+}
+
 // Ranking por juego
-app.get('/games/:gameId', async (req, res) => {
-  try {
-    const query = `
-      SELECT u.username, s.score, s.created_at 
-      FROM scores s
-      JOIN users u ON s.user_id = u.id
-      JOIN games g ON s.game_id = g.id
-      WHERE g.name = $1
-      ORDER BY s.score DESC
-      LIMIT 10
-    `;
-    const { rows } = await pool.query(query, [req.params.gameId]);
-    res.json(rows);
-  } catch (err) {
-    console.error('Error en rankings:', err.message);
-    res.json([]);
-  }
-});
+app.get('/games/:gameId', asyncHandler(async (req, res) => {
+  const ranking = await obtenerRankingPorJuego(req.params.gameId);
+  res.json(ranking);
+}));
 
 // Alias para compatibilidad con frontend - Rankings por juego
-app.get('/api/rankings/games/:gameId', async (req, res) => {
-  try {
-    const query = `
-      SELECT u.username, s.score, s.created_at 
-      FROM scores s
-      JOIN users u ON s.user_id = u.id
-      JOIN games g ON s.game_id = g.id
-      WHERE g.name = $1
-      ORDER BY s.score DESC
-      LIMIT 10
-    `;
-    const { rows } = await pool.query(query, [req.params.gameId]);
-    res.json(rows);
-  } catch (err) {
-    console.error('Error en rankings:', err.message);
-    res.json([]);
-  }
-});
+app.get('/api/rankings/games/:gameId', asyncHandler(async (req, res) => {
+  const ranking = await obtenerRankingPorJuego(req.params.gameId);
+  res.json(ranking);
+}));
 
 // ============================================================================
 // ENDPOINTS DE PUNTUACIONES
 // ============================================================================
 
-// Guardar puntuación (protegido con JWT)
-app.post('/', authMiddleware, async (req, res) => {
-  try {
-    console.log('📥 POST / recibido');
-    console.log('📦 Body:', req.body);
-    console.log('🔑 User from token:', req.user);
-    
-    const { game, score } = req.body;
-    const userId = req.user.userId;
-    
-    // Buscar o crear el juego
-    let gameRecord = await pool.query('SELECT id FROM games WHERE name = $1', [game]);
-    if (gameRecord.rows.length === 0) {
-      console.log(`🎮 Creando nuevo juego: ${game}`);
-      const slug = game.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      const newGame = await pool.query(
-        'INSERT INTO games (slug, name, description) VALUES ($1, $2, $3) RETURNING id',
-        [slug, game, `Juego ${game}`]
-      );
-      gameRecord = newGame;
-    }
-    
-    const gameId = gameRecord.rows[0].id;
-    console.log(`🎮 Game ID: ${gameId}`);
-    
-    // Guardar o actualizar la puntuación
-    const existingScore = await pool.query(
-      'SELECT id, score FROM scores WHERE user_id = $1 AND game_id = $2',
-      [userId, gameId]
-    );
-    
-    if (existingScore.rows.length > 0) {
-      console.log(`📊 Puntuación existente: ${existingScore.rows[0].score}, nueva: ${score}`);
-      if (score > existingScore.rows[0].score) {
-        await pool.query(
-          'UPDATE scores SET score = $1, updated_at = NOW() WHERE id = $2',
-          [score, existingScore.rows[0].id]
-        );
-        console.log(`✅ Puntuación actualizada`);
-        res.json({ message: 'Puntuación actualizada', score });
-      } else {
-        console.log(`ℹ️ Puntuación existente es mayor`);
-        res.json({ message: 'Puntuación existente es mayor', score: existingScore.rows[0].score });
-      }
-    } else {
-      console.log(`✨ Creando nueva puntuación`);
-      await pool.query(
-        'INSERT INTO scores (user_id, game_id, score) VALUES ($1, $2, $3)',
-        [userId, gameId, score]
-      );
-      console.log(`✅ Puntuación guardada`);
-      res.json({ message: 'Puntuación guardada', score });
-    }
-  } catch (err) {
-    console.error('❌ Error al guardar puntuación:', err.message);
-    res.status(500).json({ error: err.message });
+// Función helper para guardar puntuación
+async function guardarPuntuacion(userId, gameName, score) {
+  console.log(`🎯 Guardando puntuación para: ${gameName}`);
+  
+  // Normalizar el nombre del juego a slug
+  const gameSlug = gameName.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  
+  // Buscar el juego por slug
+  let gameRecord = await pool.query('SELECT id FROM games WHERE slug = $1', [gameSlug]);
+  if (gameRecord.rows.length === 0) {
+    throw { status: 404, message: `Juego no encontrado: ${gameName}` };
   }
-});
+  
+  const gameId = gameRecord.rows[0].id;
+  
+  // Guardar o actualizar la puntuación
+  const existingScore = await pool.query(
+    'SELECT id, score FROM scores WHERE user_id = $1 AND game_id = $2',
+    [userId, gameId]
+  );
+  
+  if (existingScore.rows.length > 0) {
+    if (score > existingScore.rows[0].score) {
+      await pool.query(
+        'UPDATE scores SET score = $1, updated_at = NOW() WHERE id = $2',
+        [score, existingScore.rows[0].id]
+      );
+      console.log(`✅ Puntuación actualizada`);
+      return { message: 'Puntuación actualizada', score };
+    } else {
+      console.log(`ℹ️ Puntuación existente es mayor`);
+      return { message: 'Puntuación existente es mayor', score: existingScore.rows[0].score };
+    }
+  } else {
+    await pool.query(
+      'INSERT INTO scores (user_id, game_id, score) VALUES ($1, $2, $3)',
+      [userId, gameId, score]
+    );
+    console.log(`✅ Puntuación guardada`);
+    return { message: 'Puntuación guardada', score };
+  }
+}
+
+// Guardar puntuación (protegido con JWT)
+app.post('/', authMiddleware, asyncHandler(async (req, res) => {
+  console.log('📥 POST / recibido');
+  const { game, score } = req.body;
+  const result = await guardarPuntuacion(req.user.userId, game, score);
+  res.json(result);
+}));
 
 // Alias para compatibilidad con frontend
-app.post('/api/scores/', authMiddleware, async (req, res) => {
-  try {
-    console.log('📥 POST /api/scores/ recibido (alias)');
-    console.log('📦 Body:', req.body);
-    console.log('🔑 User from token:', req.user);
-    
-    const { game, score } = req.body;
-    const userId = req.user.userId;
-    
-    // Buscar o crear el juego
-    let gameRecord = await pool.query('SELECT id FROM games WHERE name = $1', [game]);
-    if (gameRecord.rows.length === 0) {
-      console.log(`🎮 Creando nuevo juego: ${game}`);
-      const slug = game.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      const newGame = await pool.query(
-        'INSERT INTO games (slug, name, description) VALUES ($1, $2, $3) RETURNING id',
-        [slug, game, `Juego ${game}`]
-      );
-      gameRecord = newGame;
-    }
-    
-    const gameId = gameRecord.rows[0].id;
-    console.log(`🎮 Game ID: ${gameId}`);
-    
-    // Guardar o actualizar la puntuación
-    const existingScore = await pool.query(
-      'SELECT id, score FROM scores WHERE user_id = $1 AND game_id = $2',
-      [userId, gameId]
-    );
-    
-    if (existingScore.rows.length > 0) {
-      console.log(`📊 Puntuación existente: ${existingScore.rows[0].score}, nueva: ${score}`);
-      if (score > existingScore.rows[0].score) {
-        await pool.query(
-          'UPDATE scores SET score = $1, updated_at = NOW() WHERE id = $2',
-          [score, existingScore.rows[0].id]
-        );
-        console.log(`✅ Puntuación actualizada`);
-        res.json({ message: 'Puntuación actualizada', score });
-      } else {
-        console.log(`ℹ️ Puntuación existente es mayor`);
-        res.json({ message: 'Puntuación existente es mayor', score: existingScore.rows[0].score });
-      }
-    } else {
-      console.log(`✨ Creando nueva puntuación`);
-      await pool.query(
-        'INSERT INTO scores (user_id, game_id, score) VALUES ($1, $2, $3)',
-        [userId, gameId, score]
-      );
-      console.log(`✅ Puntuación guardada`);
-      res.json({ message: 'Puntuación guardada', score });
-    }
-  } catch (err) {
-    console.error('❌ Error al guardar puntuación:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/scores/', authMiddleware, asyncHandler(async (req, res) => {
+  console.log('📥 POST /api/scores/ recibido');
+  const { game, score } = req.body;
+  const result = await guardarPuntuacion(req.user.userId, game, score);
+  res.json(result);
+}));
 
 // ============================================================================
 // INICIAR SERVIDOR

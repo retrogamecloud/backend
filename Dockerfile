@@ -1,14 +1,24 @@
 # Dockerfile para el servicio de base de datos única de RetroGameCloud
-FROM node:20-alpine
+# Usando node:20-slim en lugar de alpine para evitar problemas con bcrypt
+FROM node:20-slim
 
 WORKDIR /app
+
+# Crear usuario no privilegiado
+RUN groupadd -r nodeuser && useradd -r -g nodeuser nodeuser
 
 COPY package*.json ./
 RUN npm install --production
 
 COPY . .
 
+# Cambiar propiedad de archivos al usuario no privilegiado
+RUN chown -R nodeuser:nodeuser /app
+
+# Cambiar a usuario no privilegiado
+USER nodeuser
+
 EXPOSE 3000
 
-# Usar código refactorizado que tiene 85.71% de cobertura
-CMD ["node", "index.wrapper.js"]
+# Usar código monolítico estable que funcionaba perfectamente
+CMD ["node", "index.js"]
