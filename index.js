@@ -15,7 +15,12 @@ const { Pool } = pg;
 // ============================================================================
 
 const app = express();
-const SECRET_KEY = process.env.JWT_SECRET || 'tu_clave_secreta_super_segura_cambiar_en_produccion';
+
+// Validar que JWT_SECRET esté configurado en producción
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('JWT_SECRET environment variable is required in production');
+}
+const SECRET_KEY = process.env.JWT_SECRET || 'dev-secret-key-change-in-production';
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
