@@ -165,8 +165,7 @@ app.get('/users/:username', async (req, res) => {
 app.post('/auth/register', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await crearUsuario({ username, password_hash: hashedPassword, ...rest });
+    const user = await procesarRegistroUsuario(username, password);
     res.status(201).json(user);
   } catch (err) {
     console.error('Error en registro:', err.message);
