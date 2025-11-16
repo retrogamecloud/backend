@@ -315,3 +315,4 @@ Este servicio unifica lo que antes eran 5 microservicios independientes:
 # Test workflow trigger
 # Execute workflow NOW
 # Run workflow
+# Test pipeline
