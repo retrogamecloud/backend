@@ -4,10 +4,19 @@ FROM node:20-slim
 
 WORKDIR /app
 
+# Crear usuario no privilegiado
+RUN groupadd -r nodeuser && useradd -r -g nodeuser nodeuser
+
 COPY package*.json ./
 RUN npm install --production
 
 COPY . .
+
+# Cambiar propiedad de archivos al usuario no privilegiado
+RUN chown -R nodeuser:nodeuser /app
+
+# Cambiar a usuario no privilegiado
+USER nodeuser
 
 EXPOSE 3000
 

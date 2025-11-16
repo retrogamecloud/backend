@@ -18,9 +18,10 @@ const app = express();
 
 // Validar que JWT_SECRET esté configurado en producción
 if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
-  throw new Error('JWT_SECRET environment variable is required in production');
+  console.error('ERROR: JWT_SECRET environment variable is required in production');
+  process.exit(1);
 }
-const SECRET_KEY = process.env.JWT_SECRET || 'dev-secret-key-change-in-production';
+const SECRET_KEY = process.env.JWT_SECRET || 'test-secret-for-development-only';
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
