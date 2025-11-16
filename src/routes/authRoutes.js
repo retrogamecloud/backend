@@ -15,13 +15,13 @@ import { authMiddleware } from '../middleware/authMiddleware.js';
 export async function createAuthRoutes(pool, secret) {
   const router = express.Router();
 
-  // Rutas públicas
+  // Rutas públicas (register es async, necesita await)
   router.post('/register', await authController.register(pool, secret));
-  router.post('/login', await authController.login(pool, secret));
+  router.post('/login', authController.login(pool, secret));
 
   // Rutas protegidas
-  router.get('/profile', authMiddleware(secret), await authController.getProfile(pool));
-  router.put('/profile', authMiddleware(secret), await authController.updateProfile(pool));
+  router.get('/profile', authMiddleware(secret), authController.getProfile(pool));
+  router.put('/profile', authMiddleware(secret), authController.updateProfile(pool));
 
   return router;
 }

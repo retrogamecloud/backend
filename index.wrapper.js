@@ -4,7 +4,7 @@
 // El código refactorizado está en index.refactored.js
 // ============================================================================
 
-import { createApp, startServer } from './index.refactored.js';
+import { createApp } from './index.refactored.js';
 import { createPool, testConnection } from './src/config/database.js';
 
 const SECRET_KEY = process.env.JWT_SECRET || 'tu_clave_secreta_super_segura_cambiar_en_produccion';
@@ -19,16 +19,41 @@ testConnection(pool).then(async (connected) => {
   if (connected) {
     console.log('✅ Conexión a base de datos establecida');
     
-    // Crear y iniciar aplicación
-    const app = await createApp(pool, SECRET_KEY);
-    startServer(app, PORT);
-    
-    console.log(`✅ Database Service corriendo en puerto ${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/health`);
+    try {
+      // Crear aplicación
+      console.log('🔧 Creando aplicación...');
+      const app = await createApp(pool, SECRET_KEY);
+      console.log('✅ Aplicación creada exitosamente');
+      
+      // Iniciar servidor
+      const server = app.listen(PORT, () => {
+        console.log(`✅ Database Service corriendo en puerto ${PORT}`);
+        console.log(`📊 Health check: http://localhost:${PORT}/health`);
+      });
+
+      server.on('error', (error) => {
+        console.error('❌ Error en el servidor:', error);
+      });
+
+      // Capturar errores no manejados
+      process.on('uncaughtException', (error) => {
+        console.error('❌ Uncaught Exception:', error);
+      });
+
+      process.on('unhandledRejection', (reason, promise) => {
+        console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+      });
+    } catch (error) {
+      console.error('❌ Error al crear aplicación:', error);
+      process.exit(1);
+    }
   } else {
     console.error('❌ No se pudo conectar a la base de datos');
     process.exit(1);
   }
+}).catch((error) => {
+  console.error('❌ Error en testConnection:', error);
+  process.exit(1);
 });
 
 // Manejo de cierre graceful
