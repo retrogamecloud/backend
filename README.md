@@ -312,3 +312,4 @@ Este servicio unifica lo que antes eran 5 microservicios independientes:
 - ✅ Despliegue simplificado
 
 
+# Test workflow trigger
