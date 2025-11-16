@@ -2,7 +2,7 @@
 // SERVICIO DE AUTENTICACIÓN
 // ============================================================================
 
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
 const SALT_ROUNDS = 10;

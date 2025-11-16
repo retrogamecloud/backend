@@ -7,6 +7,8 @@ import express from 'express';
 import cors from 'cors';
 import { createPool, testConnection } from './src/config/database.js';
 import { createAuthRoutes } from './src/routes/authRoutes.js';
+import { createRankingRoutes } from './src/routes/rankingRoutes.js';
+import { createScoreRoutes } from './src/routes/scoreRoutes.js';
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -37,6 +39,12 @@ export async function createApp(pool, secret) {
 
   // Rutas de autenticación
   app.use('/api/auth', await createAuthRoutes(pool, secret));
+
+  // Rutas de rankings
+  app.use('/api', await createRankingRoutes(pool));
+
+  // Rutas de scores
+  app.use('/api', await createScoreRoutes(pool, secret));
 
   // Manejo de rutas no encontradas
   app.use((req, res) => {
