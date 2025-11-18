@@ -48,7 +48,7 @@ jobs:
         run: npm run test:coverage
 
       - name: Subir reporte de cobertura
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v3 # Forzar a v3 para testear dependabot.
         if: always()
         with:
           files: ./coverage/lcov.info
@@ -111,7 +111,7 @@ jobs:
             type=sha,prefix=sha-,format=short
 
       - name: Compilar y publicar imagen Docker
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
