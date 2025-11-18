@@ -27,7 +27,7 @@ jobs:
     
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configurar Node.js
         uses: actions/setup-node@v6
@@ -64,7 +64,7 @@ jobs:
 
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -135,7 +135,7 @@ jobs:
 
     steps:
       - name: Clonar repositorio de Kubernetes
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ env.K8S_REPO }}
           token: ${{ secrets.K8S_UPDATE_TOKEN }}
