@@ -17,12 +17,13 @@ on:
 env:
   REGISTRY_GHCR: ghcr.io
   REGISTRY_DOCKERHUB: docker.io
-  IMAGE_NAME: retrogamecloud/backend
+  DOCKERHUB_ORG: retrogamehub
   K8S_REPO: retrogamecloud/kubernetes
   K8S_MANIFEST_FILE: 02-backend.yaml
 
 jobs:
-  test:
+## JOB PARA EJECUTAR TESTS Y ANALISIS DE CALIDAD ##
+  tests:
     runs-on: ubuntu-latest
     
     steps:
@@ -47,6 +48,19 @@ jobs:
       - name: Generar reporte de cobertura
         run: npm run test:coverage
 
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=retrogamecloud_backend
+            -Dsonar.organization=retrogamecloud
+            -Dsonar.sources=src
+            -Dsonar.tests=tests
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
       - name: Subir reporte de cobertura
         uses: codecov/codecov-action@v5
         if: always()
@@ -55,8 +69,9 @@ jobs:
           flags: unittests
           name: backend-coverage
 
+## JOB PARA COMPILAR Y PUBLICAR LA IMAGEN DOCKER ##
   build-and-push:
-    needs: test
+    needs: tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -103,8 +118,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ghcr.io/retrogamecloud/backend
-            retrogamehub/backend
+            ghcr.io/${{ github.repository }}
+            ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}
           tags: |
             type=raw,value=latest
             type=raw,value=${{ steps.version.outputs.version }}
@@ -117,8 +132,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache,mode=max
           platforms: linux/amd64
 
       - name: Resumen de imagen publicada
@@ -127,8 +142,45 @@ jobs:
           echo "📦 Versión: ${{ steps.version.outputs.version }}"
           echo "🔖 SHA: sha-${{ steps.version.outputs.short_sha }}"
 
-  update-kubernetes-manifest:
+## JOB PARA ESCANEO DE SEGURIDAD ##
+  security-scan:
     needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    
+    steps:
+      - name: Obtener tag de imagen
+        id: image_tag
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.image_tag.outputs.tag }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Generar reporte de vulnerabilidades
+        if: always()
+        run: |
+          echo "## 🔒 Escaneo de Seguridad" >> $GITHUB_STEP_SUMMARY
+          echo "Imagen escaneada: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.image_tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+
+## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
+  update-kubernetes-manifest:
+    needs: [build-and-push, security-scan]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -157,12 +209,13 @@ jobs:
         run: |
           IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
           VERSION="${{ steps.image_info.outputs.version }}"
+          SERVICE="${{ github.event.repository.name }}"
           
           # Actualizar la imagen en el manifiesto usando sed
-          sed -i "s|image: retrogamehub/backend:.*|image: retrogamehub/backend:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
           
           # Actualizar el comentario con la versión
-          sed -i "s|# Imagen del backend desde DockerHub.*|# Imagen del backend desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|# Imagen de ${SERVICE} desde DockerHub.*|# Imagen de ${SERVICE} desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
           
           echo "✅ Manifiesto actualizado con imagen: ${IMAGE_TAG}"
 
@@ -175,7 +228,8 @@ jobs:
         run: |
           VERSION="${{ steps.image_info.outputs.version }}"
           IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
-          BRANCH_NAME="auto/backend-${IMAGE_TAG}"
+          SERVICE="${{ github.event.repository.name }}"
+          BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
           
           git add ${{ env.K8S_MANIFEST_FILE }}
           
@@ -186,11 +240,11 @@ jobs:
             # Crear rama para el PR
             git checkout -b "${BRANCH_NAME}"
             
-            git commit -m "chore: Actualizar imagen de backend a ${IMAGE_TAG} [skip ci]" \
+            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
                        -m "SHA: ${{ steps.image_info.outputs.short_sha }}" \
                        -m "Commit origen: ${{ github.sha }}" \
-                       -m "Actualizacion automatica desde CI/CD del repositorio backend"
+                       -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
             
             git push origin "${BRANCH_NAME}"
             
@@ -199,8 +253,8 @@ jobs:
               --repo ${{ env.K8S_REPO }} \
               --base main \
               --head "${BRANCH_NAME}" \
-              --title "chore(backend): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de backend - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ steps.image_info.outputs.short_sha }}, Commit: ${{ github.sha }}"
+              --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
+              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ steps.image_info.outputs.short_sha }}, Commit: ${{ github.sha }}"
             
             echo "✅ PR creado en el repositorio de Kubernetes"
           fi
@@ -211,6 +265,7 @@ jobs:
         run: |
           echo "## Actualizacion de Kubernetes Completada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Servicio**: ${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: ${{ steps.image_info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag de imagen**: ${{ steps.image_info.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.K8S_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
