@@ -1,0 +1,143 @@
+name: Rollback Backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión o tag de imagen a restaurar (ej: v1.0.123 o sha-abc1234)'
+        required: true
+        type: string
+      reason:
+        description: 'Razón del rollback'
+        required: true
+        type: string
+      emergency:
+        description: 'Rollback de emergencia (auto-merge sin PR para ArgoCD)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  DOCKERHUB_ORG: retrogamehub
+  K8S_REPO: retrogamecloud/kubernetes
+  K8S_MANIFEST_FILE: 02-backend.yaml
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Validar que la imagen existe en Docker Hub
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          SERVICE="${{ github.event.repository.name }}"
+          
+          # Verificar si la imagen existe
+          if docker manifest inspect ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${VERSION} > /dev/null 2>&1; then
+            echo "✅ Imagen ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${VERSION} encontrada"
+          else
+            echo "❌ Error: La imagen ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${VERSION} no existe"
+            exit 1
+          fi
+
+      - name: Clonar repositorio de Kubernetes
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.K8S_REPO }}
+          token: ${{ secrets.K8S_UPDATE_TOKEN }}
+          ref: main
+
+      - name: Rollback a versión anterior
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          REASON="${{ github.event.inputs.reason }}"
+          SERVICE="${{ github.event.repository.name }}"
+          
+          # Actualizar manifiesto
+          sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${VERSION}|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|# Imagen del ${SERVICE} desde DockerHub.*|# Imagen del ${SERVICE} desde DockerHub - ROLLBACK a ${VERSION}|g" ${{ env.K8S_MANIFEST_FILE }}
+
+      - name: Configurar Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+      - name: Aplicar cambios (PR o directo según modo de emergencia)
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          REASON="${{ github.event.inputs.reason }}"
+          SERVICE="${{ github.event.repository.name }}"
+          EMERGENCY="${{ github.event.inputs.emergency }}"
+          
+          git add ${{ env.K8S_MANIFEST_FILE }}
+          
+          # Verificar si hay cambios
+          if git diff --staged --quiet; then
+            echo "⚠️ No hay cambios en el manifiesto"
+            exit 0
+          fi
+          
+          if [ "$EMERGENCY" = "true" ]; then
+            # MODO EMERGENCIA: Commit directo a main (ArgoCD lo sincroniza inmediatamente)
+            echo "🚨 MODO EMERGENCIA: Aplicando rollback directo a main"
+            
+            git commit -m "🚨 ROLLBACK EMERGENCIA: Restaurar ${SERVICE} a ${VERSION}" \
+                       -m "Razón: ${REASON}" \
+                       -m "Ejecutado por: ${{ github.actor }}" \
+                       -m "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+                       -m "[skip ci]"
+            
+            git push origin main
+            
+            echo "✅ Rollback aplicado directamente. ArgoCD sincronizará automáticamente."
+          else
+            # MODO NORMAL: Crear PR para revisión
+            BRANCH_NAME="rollback/${SERVICE}-${VERSION}-$(date +%s)"
+            
+            git checkout -b "${BRANCH_NAME}"
+            
+            git commit -m "🔙 ROLLBACK: Restaurar ${SERVICE} a ${VERSION}" \
+                       -m "Razón: ${REASON}" \
+                       -m "Ejecutado por: ${{ github.actor }}" \
+                       -m "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            
+            git push origin "${BRANCH_NAME}"
+            
+            gh pr create \
+              --repo ${{ env.K8S_REPO }} \
+              --base main \
+              --head "${BRANCH_NAME}" \
+              --title "🔙 ROLLBACK: ${SERVICE} a ${VERSION}" \
+              --body "Rollback de ${SERVICE} - Version: ${VERSION}, Razon: ${REASON}, Ejecutado por: ${{ github.actor }}" \
+              --label "rollback,urgent"
+            
+            echo "✅ PR de rollback creado. Aprobar para que ArgoCD sincronice."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
+
+      - name: Notificar resultado
+        run: |
+          EMERGENCY="${{ github.event.inputs.emergency }}"
+          
+          if [ "$EMERGENCY" = "true" ]; then
+            echo "## 🚨 Rollback de Emergencia Aplicado" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Versión restaurada**: ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Razón**: ${{ github.event.inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Ejecutado por**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Modo**: EMERGENCIA (commit directo a main)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **ArgoCD sincronizará automáticamente en ~30 segundos**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ✅ Rollback Iniciado" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Versión restaurada**: ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Razón**: ${{ github.event.inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Ejecutado por**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Modo**: Normal (requiere aprobación)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Acción requerida**: Aprobar el PR → ArgoCD sincronizará automáticamente" >> $GITHUB_STEP_SUMMARY
+          fi
