@@ -154,7 +154,7 @@ jobs:
 
 ## JOB PARA EJECUTAR TESTS Y ANALISIS DE CALIDAD ##
   tests:
-    needs: [check-changes, lint]
+    needs: check-changes
     if: needs.check-changes.outputs.should-test == 'true'
     runs-on: ubuntu-latest
     
@@ -219,6 +219,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
 
     steps:
       - name: Clonar repositorio
@@ -308,24 +312,21 @@ jobs:
     permissions:
       contents: read
       security-events: write
+    outputs:
+      has-vulnerabilities: ${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}
     
     steps:
       - name: Clonar repositorio
         uses: actions/checkout@v5
 
-      - name: Obtener tag de imagen
-        id: image_tag
-        run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
-
       - name: Run Snyk to check Docker image for vulnerabilities
+        id: snyk-scan
         uses: snyk/actions/docker@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.image_tag.outputs.tag }}'
+          image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build-and-push.outputs.image_tag }}'
           args: --severity-threshold=high --sarif-file-output=snyk-results.sarif
 
       - name: Upload Snyk results to GitHub Security
@@ -334,23 +335,31 @@ jobs:
         with:
           sarif_file: 'snyk-results.sarif'
 
-      - name: Verificar resultado de Snyk
+      - name: Verificar vulnerabilidades críticas
+        id: check-vulnerabilities
         if: always()
         run: |
           if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
-            echo "::warning title=Snyk Deshabilitado::SNYK_TOKEN no configurado. El escaneo de seguridad se omitió."
-            echo "ℹ️ Para habilitar Snyk, configura el secreto SNYK_TOKEN en el repositorio." >> $GITHUB_STEP_SUMMARY
+            echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.snyk-scan.outcome }}" = "failure" ]; then
+            echo "::error title=Vulnerabilidades Críticas::Se encontraron vulnerabilidades de seguridad críticas en la imagen."
+            echo "❌ **VULNERABILIDADES CRÍTICAS DETECTADAS**" >> $GITHUB_STEP_SUMMARY
+            echo "has-vulnerabilities=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ No se encontraron vulnerabilidades críticas" >> $GITHUB_STEP_SUMMARY
+            echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Generar reporte de vulnerabilidades
         if: always()
         run: |
           echo "## 🔒 Escaneo de Seguridad con Snyk" >> $GITHUB_STEP_SUMMARY
-          echo "Imagen escaneada: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.image_tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "Imagen escaneada: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build-and-push.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
 
 ## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
   update-kubernetes-manifest:
     needs: [build-and-push, security-scan]
+    if: needs.security-scan.outputs.has-vulnerabilities == 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -363,31 +372,10 @@ jobs:
           token: ${{ secrets.K8S_UPDATE_TOKEN }}
           ref: main
 
-      - name: Obtener información de la imagen desde el job anterior
-        id: image_info
-        run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          
-          # Determinar el tag a usar (mismo lógica que en build)
-          if [ -n "${{ inputs.tag }}" ]; then
-            VERSION="${{ inputs.tag }}"
-            IMAGE_TAG="${{ inputs.tag }}"
-          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            VERSION="${{ github.ref_name }}"
-            IMAGE_TAG="${{ github.ref_name }}"
-          else
-            VERSION="sha-${SHORT_SHA}"
-            IMAGE_TAG="sha-${SHORT_SHA}"
-          fi
-          
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-
       - name: Actualizar manifiesto de Kubernetes
         run: |
-          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
-          VERSION="${{ steps.image_info.outputs.version }}"
+          IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+          VERSION="${{ needs.build-and-push.outputs.version }}"
           SERVICE="${{ github.event.repository.name }}"
           
           # Actualizar la imagen en el manifiesto usando sed
@@ -405,8 +393,8 @@ jobs:
 
       - name: Crear rama y PR con cambios
         run: |
-          VERSION="${{ steps.image_info.outputs.version }}"
-          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
+          VERSION="${{ needs.build-and-push.outputs.version }}"
+          IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
           SERVICE="${{ github.event.repository.name }}"
           BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
           
@@ -421,7 +409,7 @@ jobs:
             
             git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
-                       -m "SHA: ${{ steps.image_info.outputs.short_sha }}" \
+                       -m "SHA: ${{ needs.build-and-push.outputs.short_sha }}" \
                        -m "Commit origen: ${{ github.sha }}" \
                        -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
             
@@ -433,7 +421,7 @@ jobs:
               --base main \
               --head "${BRANCH_NAME}" \
               --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ steps.image_info.outputs.short_sha }}, Commit: ${{ github.sha }}"
+              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ needs.build-and-push.outputs.short_sha }}, Commit: ${{ github.sha }}"
             
             echo "✅ PR creado en el repositorio de Kubernetes"
           fi
@@ -445,7 +433,7 @@ jobs:
           echo "## Actualizacion de Kubernetes Completada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Servicio**: ${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ steps.image_info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag de imagen**: ${{ steps.image_info.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.build-and-push.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag de imagen**: ${{ needs.build-and-push.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.K8S_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repositorio**: ${{ env.K8S_REPO }}" >> $GITHUB_STEP_SUMMARY
