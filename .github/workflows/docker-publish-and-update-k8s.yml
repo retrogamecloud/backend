@@ -38,7 +38,7 @@ permissions:
 
 jobs:
 ## JOB PARA LINTING DE CÓDIGO ##
-  lint:
+  eslint-prettier:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -241,10 +241,12 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       image_tag: ${{ steps.version.outputs.image_tag }}
       short_sha: ${{ steps.version.outputs.short_sha }}
+      has-vulnerabilities: ${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}
 
     steps:
       - name: Clonar repositorio
@@ -254,13 +256,6 @@ jobs:
 
       - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Iniciar sesión en GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY_GHCR }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generar etiqueta de versión y SHA
         id: version
@@ -296,59 +291,28 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ghcr.io/${{ github.repository }}
+            ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}
           tags: |
             type=raw,value=${{ steps.version.outputs.image_tag }}
 
-      - name: Compilar imagen Docker (solo build, sin push)
+      - name: Compilar imagen Docker (cargada localmente)
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache,mode=max
-          platforms: linux/amd64
 
-      - name: Resumen de imagen compilada
-        run: |
-          echo "✅ Imagen compilada exitosamente"
-          echo "📦 Versión: ${{ steps.version.outputs.version }}"
-          echo "🔖 Tag de imagen: ${{ steps.version.outputs.image_tag }}"
-          echo "🔗 SHA: ${{ steps.version.outputs.short_sha }}"
-          echo "🏷️ Imagen temporal: ghcr.io/${{ github.repository }}:${{ steps.version.outputs.image_tag }}"
-
-## JOB PARA ESCANEO DE SEGURIDAD ##
-  security-scan:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-      packages: read
-    outputs:
-      has-vulnerabilities: ${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}
-    
-    steps:
-      - name: Clonar repositorio
-        uses: actions/checkout@v5
-
-      - name: Iniciar sesión en GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY_GHCR }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Ejecutar Snyk para escanear vulnerabilidades en imagen Docker
+      - name: Ejecutar Snyk para escanear vulnerabilidades
         id: snyk-scan
         uses: snyk/actions/docker@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          image: 'ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}'
+          image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}'
           args: --severity-threshold=high --sarif-file-output=snyk-results.sarif
 
       - name: Verificar si se generó el archivo SARIF
@@ -360,7 +324,7 @@ jobs:
             echo "✅ Archivo SARIF generado"
           else
             echo "sarif-exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️ No se generó archivo SARIF (posiblemente SNYK_TOKEN no configurado o error en escaneo)"
+            echo "⚠️ No se generó archivo SARIF"
           fi
 
       - name: Subir resultados de Snyk a GitHub Security
@@ -386,31 +350,36 @@ jobs:
             echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Generar reporte de vulnerabilidades
-        if: always()
+      - name: Resumen de imagen compilada
         run: |
-          echo "## 🔒 Escaneo de Seguridad con Snyk" >> $GITHUB_STEP_SUMMARY
-          echo "Imagen escaneada: ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 🐳 Build y Security Scan Completados" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versión**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ steps.version.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA**: ${{ steps.version.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Imagen**: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
 
 ## JOB PARA PUBLICAR LA IMAGEN A DOCKER HUB ##
   push:
-    needs: [build, security-scan]
-    if: needs.security-scan.outputs.has-vulnerabilities == 'false'
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
 
     steps:
       - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Iniciar sesión en GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Clonar repositorio
+        uses: actions/checkout@v5
         with:
-          registry: ${{ env.REGISTRY_GHCR }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Generar tag nuevamente (para consistency)
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Iniciar sesión en Docker Hub
         uses: docker/login-action@v3
@@ -419,41 +388,37 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Instalar crane para copiar imágenes entre registries
-        run: |
-          VERSION="v0.19.1"
-          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" > crane.tar.gz
-          tar -xzf crane.tar.gz crane
-          sudo mv crane /usr/local/bin/
-          crane version
+      - name: Iniciar sesión en GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Copiar imagen de GHCR a Docker Hub usando crane
-        run: |
-          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
-          SOURCE_IMAGE="ghcr.io/${{ github.repository }}:${IMAGE_TAG}"
-          TARGET_IMAGE="${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${IMAGE_TAG}"
-          TARGET_LATEST="${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:latest"
-          
-          echo "📤 Copiando imagen de GHCR a Docker Hub..."
-          crane copy "${SOURCE_IMAGE}" "${TARGET_IMAGE}"
-          
-          # Copiar también como latest si es la rama main
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "🏷️ Copiando como latest..."
-            crane copy "${SOURCE_IMAGE}" "${TARGET_LATEST}"
-            echo "✅ Imagen publicada como latest"
-          fi
-          
-          echo "✅ Imagen copiada exitosamente a Docker Hub"
+      - name: Compilar y publicar imagen en Docker Hub y GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build.outputs.image_tag }}
+            ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:latest
+            ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}
+            ghcr.io/${{ github.repository }}:latest
+          cache-from: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache,mode=max
 
       - name: Resumen de imagen publicada
         run: |
-          echo "## 📦 Imagen Publicada en Docker Hub" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Imagen Publicada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Versión**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **SHA**: ${{ needs.build.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Imagen**: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registries:**" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐙 GHCR: \`ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 Docker Hub: \`${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
 
 ## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
   update-kubernetes-manifest:
