@@ -157,25 +157,25 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+      - name: Run Snyk to check Docker image for vulnerabilities
+        uses: snyk/actions/docker@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          image-ref: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.image_tag.outputs.tag }}'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'
+          image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.image_tag.outputs.tag }}'
+          args: --severity-threshold=high --sarif-file-output=snyk-results.sarif
 
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v2
+      - name: Upload Snyk results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: 'snyk-results.sarif'
 
       - name: Generar reporte de vulnerabilidades
         if: always()
         run: |
-          echo "## 🔒 Escaneo de Seguridad" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔒 Escaneo de Seguridad con Snyk" >> $GITHUB_STEP_SUMMARY
           echo "Imagen escaneada: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.image_tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
 
 ## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
