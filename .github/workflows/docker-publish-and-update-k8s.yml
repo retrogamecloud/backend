@@ -467,7 +467,10 @@ jobs:
 ## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
   update-kubernetes-manifest:
     needs: [build, push]
-    if: github.event_name != 'pull_request'
+    if: |
+      always() &&
+      github.event_name != 'pull_request' &&
+      needs.push.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
