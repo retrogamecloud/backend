@@ -50,13 +50,32 @@ jobs:
 
       - name: Ejecutar ESLint
         id: eslint
-        run: npm run lint || echo "eslint_failed=true" >> $GITHUB_OUTPUT
-        continue-on-error: true
+        run: |
+          if npm run lint; then
+            echo "eslint_failed=false" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            echo "eslint_failed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
       - name: Ejecutar Prettier check
         id: prettier
-        run: npm run format:check || echo "prettier_failed=true" >> $GITHUB_OUTPUT
-        continue-on-error: true
+        run: |
+          # Verificar si el script existe
+          if npm run | grep -q "format:check"; then
+            if npm run format:check; then
+              echo "prettier_failed=false" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              echo "prettier_failed=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          else
+            echo "⏭️ Script format:check no configurado, saltando verificación de Prettier"
+            echo "prettier_failed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
       - name: Generar resumen de linting
         if: always()
