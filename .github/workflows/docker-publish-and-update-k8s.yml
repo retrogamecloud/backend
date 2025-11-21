@@ -159,8 +159,8 @@ jobs:
               echo "should-test=false" >> $GITHUB_OUTPUT
               echo "⏭️ Sin cambios detectados, saltando tests"
             else
-              # Verificar si TODOS los archivos son documentación
-              NON_DOC_FILES=$(echo "$FILES" | grep -vE '\.(md|txt)$|^docs/|^\.github/workflows/|^\.gitignore$|^LICENSE$|^\.prettierrc$|^\.prettierignore$|^\.dockerignore$|^\.env\.example$' || true)
+              # Verificar si TODOS los archivos son documentación (ahora workflows NO se excluyen)
+              NON_DOC_FILES=$(echo "$FILES" | grep -vE '\.(md|txt)$|^docs/|^\.gitignore$|^LICENSE$|^\.prettierrc$|^\.prettierignore$|^\.dockerignore$|^\.env\.example$' || true)
               
               if [ -z "$NON_DOC_FILES" ]; then
                 echo "should-test=false" >> $GITHUB_OUTPUT
