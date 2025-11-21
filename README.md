@@ -310,8 +310,3 @@ Este servicio unifica lo que antes eran 5 microservicios independientes:
 - ✅ Reducción de latencia (sin llamadas entre servicios)
 - ✅ Base de datos única con esquema coherente
 - ✅ Despliegue simplificado
-
-
-# Test workflow trigger
-# Execute workflow NOW
-# Run workflow
