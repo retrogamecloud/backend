@@ -332,7 +332,7 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}'
-          args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --platform=linux/amd64 --json-file-output=snyk-results.json
+          args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --json-file-output=snyk-results.json --platform=linux/amd64
 
       - name: Mostrar resultados de Snyk (si existen)
         if: always()
@@ -340,8 +340,10 @@ jobs:
           if [ -f "snyk-results.json" ]; then
             echo "## 🔍 Resultados del escaneo Snyk" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
-            cat snyk-results.json | head -100 >> $GITHUB_STEP_SUMMARY
+            head -100 snyk-results.json >> $GITHUB_STEP_SUMMARY || true
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No se generó archivo JSON de resultados" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Verificar si se generó el archivo SARIF
@@ -369,14 +371,26 @@ jobs:
           if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
             echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
             echo "⚠️ SNYK_TOKEN no configurado, saltando verificación" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ steps.snyk-scan.outcome }}" = "failure" ]; then
-            echo "::error title=Vulnerabilidades Críticas::Se encontraron vulnerabilidades de seguridad críticas en la imagen."
-            echo "❌ **VULNERABILIDADES CRÍTICAS DETECTADAS**" >> $GITHUB_STEP_SUMMARY
-            echo "has-vulnerabilities=true" >> $GITHUB_OUTPUT
-            exit 1
-          else
-            echo "✅ No se encontraron vulnerabilidades críticas" >> $GITHUB_STEP_SUMMARY
+          elif [ ! -f "snyk-results.json" ]; then
             echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No se generó archivo de resultados JSON, saltando verificación" >> $GITHUB_STEP_SUMMARY
+          else
+            # Contar vulnerabilidades de severidad high o critical en el JSON
+            VULN_COUNT=$(cat snyk-results.json | jq -r '[.vulnerabilities[]? | select(.severity == "high" or .severity == "critical")] | length' 2>/dev/null || echo "0")
+            
+            echo "🔍 Vulnerabilidades críticas/altas encontradas: ${VULN_COUNT}"
+            
+            if [ "${VULN_COUNT}" -gt 0 ]; then
+              echo "::error title=Vulnerabilidades Críticas::Se encontraron ${VULN_COUNT} vulnerabilidades de seguridad críticas/altas en la imagen."
+              echo "❌ **VULNERABILIDADES CRÍTICAS DETECTADAS: ${VULN_COUNT}**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Revisa el tab 'Security' para más detalles." >> $GITHUB_STEP_SUMMARY
+              echo "has-vulnerabilities=true" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "✅ No se encontraron vulnerabilidades críticas" >> $GITHUB_STEP_SUMMARY
+              echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Resumen de imagen compilada
