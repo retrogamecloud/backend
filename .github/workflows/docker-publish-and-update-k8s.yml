@@ -133,8 +133,10 @@ jobs:
           echo "📝 Mensaje del commit: $COMMIT_MSG"
           
           if echo "$COMMIT_MSG" | grep -qiE '\[no-test\]|\[skip-tests\]'; then
-            echo "⏭️ Mensaje del commit indica saltar tests: [no-test] o [skip-tests]"
             echo "should-test=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Mensaje del commit indica saltar tests: [no-test] o [skip-tests]"
+            echo "🔍 DEBUG: should-test establecido a: false"
+            cat $GITHUB_OUTPUT
           else
             # En pull requests, comparar con la rama base
             if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -171,7 +173,7 @@ jobs:
 ## JOB PARA EJECUTAR TESTS Y ANALISIS DE CALIDAD ##
   tests:
     needs: check-changes
-    if: needs.check-changes.outputs.should-test == 'true'
+    if: ${{ needs.check-changes.outputs.should-test == 'true' }}
     runs-on: ubuntu-latest
     
     steps:
