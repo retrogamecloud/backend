@@ -29,10 +29,15 @@ env:
   K8S_REPO: retrogamecloud/kubernetes
   K8S_MANIFEST_FILE: 02-backend.yaml
 
+permissions:
+  contents: read
+
 jobs:
 ## JOB PARA LINTING DE CÓDIGO ##
   lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     continue-on-error: ${{ github.event_name != 'pull_request' }}
     
     steps:
@@ -111,6 +116,8 @@ jobs:
 ## JOB PARA DETECTAR TIPO DE CAMBIOS ##
   check-changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       should-test: ${{ steps.changes.outputs.should-test }}
     steps:
