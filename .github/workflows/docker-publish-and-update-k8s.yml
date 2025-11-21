@@ -30,6 +30,65 @@ env:
   K8S_MANIFEST_FILE: 02-backend.yaml
 
 jobs:
+## JOB PARA LINTING DE CÓDIGO ##
+  lint:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ github.event_name != 'pull_request' }}
+    
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v5
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Ejecutar ESLint
+        id: eslint
+        run: npm run lint || echo "eslint_failed=true" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Ejecutar Prettier check
+        id: prettier
+        run: npm run format:check || echo "prettier_failed=true" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Generar resumen de linting
+        if: always()
+        run: |
+          echo "## 🔍 Resultados de Linting" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.eslint.outputs.eslint_failed }}" = "true" ]; then
+            echo "- ❌ **ESLint**: Errores encontrados" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ✅ **ESLint**: Sin errores" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.prettier.outputs.prettier_failed }}" = "true" ]; then
+            echo "- ❌ **Prettier**: Formato incorrecto" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ✅ **Prettier**: Formato correcto" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "${{ steps.eslint.outputs.eslint_failed }}" = "true" ] || [ "${{ steps.prettier.outputs.prettier_failed }}" = "true" ]; then
+              echo "⚠️ **Acción requerida**: Corrige los errores de linting antes de hacer merge" >> $GITHUB_STEP_SUMMARY
+              exit 1
+            fi
+          else
+            if [ "${{ steps.eslint.outputs.eslint_failed }}" = "true" ] || [ "${{ steps.prettier.outputs.prettier_failed }}" = "true" ]; then
+              echo "⚠️ **Advertencia**: Se encontraron problemas de linting. Considera corregirlos." >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
 ## JOB PARA DETECTAR TIPO DE CAMBIOS ##
   check-changes:
     runs-on: ubuntu-latest
@@ -70,7 +129,7 @@ jobs:
 
 ## JOB PARA EJECUTAR TESTS Y ANALISIS DE CALIDAD ##
   tests:
-    needs: check-changes
+    needs: [check-changes, lint]
     if: needs.check-changes.outputs.should-test == 'true'
     runs-on: ubuntu-latest
     
