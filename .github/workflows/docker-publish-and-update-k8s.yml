@@ -181,7 +181,7 @@ jobs:
         run: npm run test:coverage
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarqube-scan-action@v5.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -192,6 +192,14 @@ jobs:
             -Dsonar.sources=src
             -Dsonar.tests=tests
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
+      - name: Verificar resultado de SonarCloud
+        if: always()
+        run: |
+          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
+            echo "::warning title=SonarCloud Deshabilitado::SONAR_TOKEN no configurado. El análisis de SonarCloud se omitió."
+            echo "ℹ️ Para habilitar SonarCloud, configura el secreto SONAR_TOKEN en el repositorio." >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Subir reporte de cobertura
         uses: codecov/codecov-action@v5
