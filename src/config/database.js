@@ -34,3 +34,4 @@ export async function testConnection(pool) {
   }
 }
 // CI/CD test
+console.log('test');
