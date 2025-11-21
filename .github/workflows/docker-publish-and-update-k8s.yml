@@ -46,7 +46,7 @@ jobs:
     
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Configurar Node.js
         uses: actions/setup-node@v6
@@ -125,7 +125,7 @@ jobs:
       should-test: ${{ steps.changes.outputs.should-test }}
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
       
@@ -182,7 +182,7 @@ jobs:
     
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Configurar Node.js
         uses: actions/setup-node@v6
@@ -203,7 +203,7 @@ jobs:
         run: npm run test:coverage
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v5.0.0
+        uses: SonarSource/sonarqube-scan-action@v6.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -250,7 +250,7 @@ jobs:
 
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -400,7 +400,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -459,7 +459,7 @@ jobs:
 
     steps:
       - name: Clonar repositorio de Kubernetes
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: ${{ env.K8S_REPO }}
           token: ${{ secrets.K8S_UPDATE_TOKEN }}
