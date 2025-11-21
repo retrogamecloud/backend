@@ -7,10 +7,41 @@ import * as authService from '../services/authService.js';
 
 /**
  * Controlador para registro de usuario
- * @description Permite registrar un nuevo usuario en el sistema con validación completa
+ * @description Permite registrar un nuevo usuario en el sistema con validación completa.
+ * Este endpoint implementa un sistema de registro seguro con:
+ * - Validación de username (alfanumérico, 3-20 caracteres)
+ * - Validación de email (formato RFC 5322)
+ * - Hash seguro de contraseñas con bcrypt (10 rounds)
+ * - Generación automática de JWT con expiración de 24h
+ * - Validación de unicidad de username/email
+ * - Campos opcionales: display_name, avatar_url, bio
+ * 
  * @param {Object} pool - Pool de conexiones de PostgreSQL
- * @param {string} secret - Secreto JWT para firma de tokens
+ * @param {string} secret - Secreto JWT para firma de tokens (HS256)
  * @returns {Function} Middleware de Express para manejar el registro
+ * 
+ * @example
+ * // Uso en rutas
+ * router.post('/register', register(pool, JWT_SECRET));
+ * 
+ * @example
+ * // Ejemplo de request body
+ * POST /api/auth/register
+ * {
+ *   "username": "player1",
+ *   "password": "SecurePass123!",
+ *   "email": "player1@retrogame.cloud",
+ *   "display_name": "Master Player",
+ *   "avatar_url": "https://cdn.retrogame.cloud/avatars/1.png",
+ *   "bio": "Retro gaming enthusiast"
+ * }
+ * 
+ * @throws {400} Username o password faltantes
+ * @throws {400} Username inválido (longitud o caracteres no permitidos)
+ * @throws {400} Email inválido (formato)
+ * @throws {409} Username ya existe en la base de datos
+ * @throws {409} Email ya registrado
+ * @throws {500} Error interno del servidor
  */
 export function register(pool, secret) {
   return async (req, res) => {
