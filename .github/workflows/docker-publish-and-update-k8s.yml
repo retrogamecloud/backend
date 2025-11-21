@@ -310,6 +310,9 @@ jobs:
       security-events: write
     
     steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v5
+
       - name: Obtener tag de imagen
         id: image_tag
         run: |
@@ -326,10 +329,18 @@ jobs:
           args: --severity-threshold=high --sarif-file-output=snyk-results.sarif
 
       - name: Upload Snyk results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'snyk-results.sarif'
+
+      - name: Verificar resultado de Snyk
+        if: always()
+        run: |
+          if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
+            echo "::warning title=Snyk Deshabilitado::SNYK_TOKEN no configurado. El escaneo de seguridad se omitió."
+            echo "ℹ️ Para habilitar Snyk, configura el secreto SNYK_TOKEN en el repositorio." >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Generar reporte de vulnerabilidades
         if: always()
