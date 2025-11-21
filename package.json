@@ -10,7 +10,8 @@
     "test:unit": "NODE_OPTIONS=--experimental-vm-modules jest tests/unit",
     "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest tests/integration",
     "test:coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
-    "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch"
+    "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
+    "lint": "eslint ."
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
