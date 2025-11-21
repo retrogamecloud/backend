@@ -129,10 +129,12 @@ jobs:
         id: changes
         run: |
           # Verificar si el mensaje del commit contiene [no-test] o [skip-tests]
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          COMMIT_MSG="$(git log -1 --pretty=%B)"
+          echo "📝 Mensaje del commit: $COMMIT_MSG"
+          
           if echo "$COMMIT_MSG" | grep -qiE '\[no-test\]|\[skip-tests\]'; then
             echo "should-test=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Mensaje del commit indica saltar tests: [no-test]"
+            echo "⏭️ Mensaje del commit indica saltar tests: [no-test] o [skip-tests]"
             exit 0
           fi
           
