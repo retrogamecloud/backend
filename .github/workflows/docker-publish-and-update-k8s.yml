@@ -22,6 +22,10 @@ on:
         required: false
         type: string
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY_GHCR: ghcr.io
   REGISTRY_DOCKERHUB: docker.io
@@ -347,9 +351,21 @@ jobs:
           image: 'ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}'
           args: --severity-threshold=high --sarif-file-output=snyk-results.sarif
 
+      - name: Verificar si se generó el archivo SARIF
+        id: check-sarif
+        if: always()
+        run: |
+          if [ -f "snyk-results.sarif" ]; then
+            echo "sarif-exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Archivo SARIF generado"
+          else
+            echo "sarif-exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No se generó archivo SARIF (posiblemente SNYK_TOKEN no configurado o error en escaneo)"
+          fi
+
       - name: Subir resultados de Snyk a GitHub Security
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: steps.check-sarif.outputs.sarif-exists == 'true'
         with:
           sarif_file: 'snyk-results.sarif'
 
@@ -364,6 +380,7 @@ jobs:
             echo "::error title=Vulnerabilidades Críticas::Se encontraron vulnerabilidades de seguridad críticas en la imagen."
             echo "❌ **VULNERABILIDADES CRÍTICAS DETECTADAS**" >> $GITHUB_STEP_SUMMARY
             echo "has-vulnerabilities=true" >> $GITHUB_OUTPUT
+            exit 1
           else
             echo "✅ No se encontraron vulnerabilidades críticas" >> $GITHUB_STEP_SUMMARY
             echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
@@ -402,31 +419,32 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Etiquetar y publicar imagen en Docker Hub
+      - name: Instalar crane para copiar imágenes entre registries
+        run: |
+          VERSION="v0.19.1"
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" > crane.tar.gz
+          tar -xzf crane.tar.gz crane
+          sudo mv crane /usr/local/bin/
+          crane version
+
+      - name: Copiar imagen de GHCR a Docker Hub usando crane
         run: |
           IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
           SOURCE_IMAGE="ghcr.io/${{ github.repository }}:${IMAGE_TAG}"
           TARGET_IMAGE="${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${IMAGE_TAG}"
           TARGET_LATEST="${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:latest"
           
-          echo "📥 Descargando imagen desde GHCR..."
-          docker pull "${SOURCE_IMAGE}"
+          echo "📤 Copiando imagen de GHCR a Docker Hub..."
+          crane copy "${SOURCE_IMAGE}" "${TARGET_IMAGE}"
           
-          echo "🏷️ Re-etiquetando imagen para Docker Hub..."
-          docker tag "${SOURCE_IMAGE}" "${TARGET_IMAGE}"
-          
-          echo "📤 Publicando imagen a Docker Hub..."
-          docker push "${TARGET_IMAGE}"
-          
-          # Publicar también como latest si es la rama main
+          # Copiar también como latest si es la rama main
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "🏷️ Etiquetando como latest..."
-            docker tag "${SOURCE_IMAGE}" "${TARGET_LATEST}"
-            docker push "${TARGET_LATEST}"
+            echo "🏷️ Copiando como latest..."
+            crane copy "${SOURCE_IMAGE}" "${TARGET_LATEST}"
             echo "✅ Imagen publicada como latest"
           fi
           
-          echo "✅ Imagen publicada exitosamente en Docker Hub"
+          echo "✅ Imagen copiada exitosamente a Docker Hub"
 
       - name: Resumen de imagen publicada
         run: |
