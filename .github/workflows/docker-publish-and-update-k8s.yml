@@ -128,15 +128,16 @@ jobs:
       - name: Detectar si requiere tests
         id: changes
         run: |
-          # Verificar si el mensaje del commit contiene [no-test] o [skip-tests]
+          # Verificar si algún commit (incluidos los del merge) contiene [no-test] o [skip-tests]
           COMMIT_MSG="$(git log -1 --pretty=%B)"
-          echo "📝 Mensaje del commit: $COMMIT_MSG"
+          echo "📝 Mensaje del commit más reciente: $COMMIT_MSG"
           
-          if echo "$COMMIT_MSG" | grep -qiE '\[no-test\]|\[skip-tests\]'; then
+          # Revisar también los commits del merge (últimos 10 commits)
+          ALL_COMMITS="$(git log -10 --pretty=%B)"
+          
+          if echo "$ALL_COMMITS" | grep -qiE '\[no-test\]|\[skip-tests\]'; then
             echo "should-test=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Mensaje del commit indica saltar tests: [no-test] o [skip-tests]"
-            echo "🔍 DEBUG: should-test establecido a: false"
-            cat $GITHUB_OUTPUT
+            echo "⏭️ Se encontró [no-test] o [skip-tests] en algún commit reciente"
           else
             # En pull requests, comparar con la rama base
             if [ "${{ github.event_name }}" = "pull_request" ]; then
