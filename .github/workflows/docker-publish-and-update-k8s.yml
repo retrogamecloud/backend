@@ -140,26 +140,34 @@ jobs:
           
           # En pull requests, comparar con la rama base
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+            FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || echo "")
           else
             # En push, comparar con el commit anterior
-            FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+            FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git ls-files)
           fi
           
           echo "📁 Archivos modificados:"
           echo "$FILES"
           echo ""
           
-          # Si no hay archivos o solo hay cambios en docs, saltar tests
+          # Si no hay archivos, saltar tests
           if [ -z "$FILES" ]; then
             echo "should-test=false" >> $GITHUB_OUTPUT
             echo "⏭️ Sin cambios detectados, saltando tests"
-          elif echo "$FILES" | grep -qvE '\.(md|txt)$|^docs/|^\.gitignore$|^LICENSE'; then
+            exit 0
+          fi
+          
+          # Verificar si TODOS los archivos son documentación
+          NON_DOC_FILES=$(echo "$FILES" | grep -vE '\.(md|txt)$|^docs/|^\.github/workflows/|^\.gitignore$|^LICENSE$|^\.prettierrc$|^\.prettierignore$|^\.dockerignore$|^\.env\.example$' || true)
+          
+          if [ -z "$NON_DOC_FILES" ]; then
+            echo "should-test=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Solo cambios en documentación/configuración, saltando tests"
+          else
             echo "should-test=true" >> $GITHUB_OUTPUT
             echo "✅ Cambios en código detectados, ejecutando tests"
-          else
-            echo "should-test=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Solo cambios en documentación, saltando tests"
+            echo "Archivos de código modificados:"
+            echo "$NON_DOC_FILES"
           fi
 
 ## JOB PARA EJECUTAR TESTS Y ANALISIS DE CALIDAD ##
