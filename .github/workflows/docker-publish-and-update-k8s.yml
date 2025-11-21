@@ -128,6 +128,14 @@ jobs:
       - name: Detectar si requiere tests
         id: changes
         run: |
+          # Verificar si el mensaje del commit contiene [no-test] o [skip-tests]
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          if echo "$COMMIT_MSG" | grep -qiE '\[no-test\]|\[skip-tests\]'; then
+            echo "should-test=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Mensaje del commit indica saltar tests: [no-test]"
+            exit 0
+          fi
+          
           # En pull requests, comparar con la rama base
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
@@ -359,7 +367,9 @@ jobs:
 ## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
   update-kubernetes-manifest:
     needs: [build-and-push, security-scan]
-    if: needs.security-scan.outputs.has-vulnerabilities == 'false'
+    if: |
+      github.event_name != 'pull_request' &&
+      needs.security-scan.outputs.has-vulnerabilities == 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: write
