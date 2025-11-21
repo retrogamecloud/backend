@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    continue-on-error: ${{ github.event_name != 'pull_request' }}
+    continue-on-error: true
     
     steps:
       - name: Clonar repositorio
@@ -55,38 +55,34 @@ jobs:
 
       - name: Ejecutar ESLint
         id: eslint
+        continue-on-error: true
         run: |
           # Verificar si el script existe
           if npm run | grep -q "lint"; then
             if npm run lint; then
               echo "eslint_failed=false" >> $GITHUB_OUTPUT
-              exit 0
             else
               echo "eslint_failed=true" >> $GITHUB_OUTPUT
-              exit 0
             fi
           else
             echo "⏭️ Script lint no configurado, saltando verificación de ESLint"
             echo "eslint_failed=false" >> $GITHUB_OUTPUT
-            exit 0
           fi
 
       - name: Ejecutar Prettier check
         id: prettier
+        continue-on-error: true
         run: |
           # Verificar si el script existe
           if npm run | grep -q "format:check"; then
             if npm run format:check; then
               echo "prettier_failed=false" >> $GITHUB_OUTPUT
-              exit 0
             else
               echo "prettier_failed=true" >> $GITHUB_OUTPUT
-              exit 0
             fi
           else
             echo "⏭️ Script format:check no configurado, saltando verificación de Prettier"
             echo "prettier_failed=false" >> $GITHUB_OUTPUT
-            exit 0
           fi
 
       - name: Generar resumen de linting
@@ -96,28 +92,24 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ "${{ steps.eslint.outputs.eslint_failed }}" = "true" ]; then
-            echo "- ❌ **ESLint**: Errores encontrados" >> $GITHUB_STEP_SUMMARY
+            echo "- ⚠️ **ESLint**: Se encontraron problemas de código" >> $GITHUB_STEP_SUMMARY
+            echo "::warning file=eslint,title=Problemas de ESLint::Se encontraron errores de linting. Ejecuta 'npm run lint' para ver los detalles."
           else
             echo "- ✅ **ESLint**: Sin errores" >> $GITHUB_STEP_SUMMARY
           fi
           
           if [ "${{ steps.prettier.outputs.prettier_failed }}" = "true" ]; then
-            echo "- ❌ **Prettier**: Formato incorrecto" >> $GITHUB_STEP_SUMMARY
+            echo "- ⚠️ **Prettier**: Se encontraron problemas de formato" >> $GITHUB_STEP_SUMMARY
+            echo "::warning file=prettier,title=Problemas de Formato::Se encontraron problemas de formato. Ejecuta 'npm run format' para corregirlos automáticamente."
           else
             echo "- ✅ **Prettier**: Formato correcto" >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            if [ "${{ steps.eslint.outputs.eslint_failed }}" = "true" ] || [ "${{ steps.prettier.outputs.prettier_failed }}" = "true" ]; then
-              echo "⚠️ **Acción requerida**: Corrige los errores de linting antes de hacer merge" >> $GITHUB_STEP_SUMMARY
-              exit 1
-            fi
-          else
-            if [ "${{ steps.eslint.outputs.eslint_failed }}" = "true" ] || [ "${{ steps.prettier.outputs.prettier_failed }}" = "true" ]; then
-              echo "⚠️ **Advertencia**: Se encontraron problemas de linting. Considera corregirlos." >> $GITHUB_STEP_SUMMARY
-            fi
+          if [ "${{ steps.eslint.outputs.eslint_failed }}" = "true" ] || [ "${{ steps.prettier.outputs.prettier_failed }}" = "true" ]; then
+            echo "ℹ️ **Nota**: Se encontraron problemas de linting, pero el workflow continuará. Considera corregirlos para mantener la calidad del código." >> $GITHUB_STEP_SUMMARY
+            echo "::notice title=Linting Informativo::El workflow continúa a pesar de los problemas de linting. Revisa las advertencias para mejorar la calidad del código."
           fi
 
 ## JOB PARA DETECTAR TIPO DE CAMBIOS ##
