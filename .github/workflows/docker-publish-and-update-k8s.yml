@@ -30,8 +30,48 @@ env:
   K8S_MANIFEST_FILE: 02-backend.yaml
 
 jobs:
+## JOB PARA DETECTAR TIPO DE CAMBIOS ##
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      should-test: ${{ steps.changes.outputs.should-test }}
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      
+      - name: Detectar si requiere tests
+        id: changes
+        run: |
+          # En pull requests, comparar con la rama base
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          else
+            # En push, comparar con el commit anterior
+            FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+          fi
+          
+          echo "📁 Archivos modificados:"
+          echo "$FILES"
+          echo ""
+          
+          # Si no hay archivos o solo hay cambios en docs, saltar tests
+          if [ -z "$FILES" ]; then
+            echo "should-test=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Sin cambios detectados, saltando tests"
+          elif echo "$FILES" | grep -qvE '\.(md|txt)$|^docs/|^\.gitignore$|^LICENSE'; then
+            echo "should-test=true" >> $GITHUB_OUTPUT
+            echo "✅ Cambios en código detectados, ejecutando tests"
+          else
+            echo "should-test=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Solo cambios en documentación, saltando tests"
+          fi
+
 ## JOB PARA EJECUTAR TESTS Y ANALISIS DE CALIDAD ##
   tests:
+    needs: check-changes
+    if: needs.check-changes.outputs.should-test == 'true'
     runs-on: ubuntu-latest
     
     steps:
@@ -79,7 +119,10 @@ jobs:
 
 ## JOB PARA COMPILAR Y PUBLICAR LA IMAGEN DOCKER ##
   build-and-push:
-    needs: tests
+    needs: [check-changes, tests]
+    if: |
+      always() &&
+      (needs.tests.result == 'success' || needs.tests.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
