@@ -118,6 +118,51 @@ export function register(pool, secret) {
 
 /**
  * Controlador para login de usuario
+ * @description Autentica un usuario existente y genera un token JWT válido.
+ * Este endpoint implementa autenticación segura mediante:
+ * - Búsqueda de usuario por username en PostgreSQL
+ * - Verificación de contraseña con bcrypt.compare()
+ * - Generación de JWT con payload mínimo (userId, username)
+ * - Respuesta sin incluir password_hash por seguridad
+ * - Mensajes de error genéricos para prevenir username enumeration
+ * 
+ * @param {Object} pool - Pool de conexiones de PostgreSQL
+ * @param {string} secret - Secreto JWT para firma de tokens (HS256)
+ * @returns {Function} Middleware de Express para manejar el login
+ * 
+ * @example
+ * // Uso en rutas
+ * router.post('/login', login(pool, JWT_SECRET));
+ * 
+ * @example
+ * // Ejemplo de request body
+ * POST /api/auth/login
+ * {
+ *   "username": "player1",
+ *   "password": "SecurePass123!"
+ * }
+ * 
+ * @example
+ * // Ejemplo de respuesta exitosa (200)
+ * {
+ *   "message": "Login exitoso",
+ *   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+ *   "user": {
+ *     "id": 1,
+ *     "username": "player1",
+ *     "email": "player1@retrogame.cloud",
+ *     "display_name": "Master Player",
+ *     "avatar_url": "https://cdn.retrogame.cloud/avatars/1.png",
+ *     "bio": "Retro gaming enthusiast",
+ *     "created_at": "2024-01-15T10:30:00Z"
+ *   }
+ * }
+ * 
+ * @throws {400} Username o password faltantes
+ * @throws {401} Credenciales inválidas (usuario no existe o password incorrecta)
+ * @throws {500} Error interno del servidor (database connection, etc.)
+ * 
+ * @security El endpoint usa mensajes de error genéricos para prevenir username enumeration attacks
  */
 export function login(pool, secret) {
   return async (req, res) => {
@@ -215,4 +260,3 @@ export function updateProfile(pool) {
     }
   };
 }
-// Test CI/CD
