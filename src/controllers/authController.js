@@ -7,10 +7,41 @@ import * as authService from '../services/authService.js';
 
 /**
  * Controlador para registro de usuario
- * @description Permite registrar un nuevo usuario en el sistema con validación completa
+ * @description Permite registrar un nuevo usuario en el sistema con validación completa.
+ * Este endpoint implementa un sistema de registro seguro con:
+ * - Validación de username (alfanumérico, 3-20 caracteres)
+ * - Validación de email (formato RFC 5322)
+ * - Hash seguro de contraseñas con bcrypt (10 rounds)
+ * - Generación automática de JWT con expiración de 24h
+ * - Validación de unicidad de username/email
+ * - Campos opcionales: display_name, avatar_url, bio
+ * 
  * @param {Object} pool - Pool de conexiones de PostgreSQL
- * @param {string} secret - Secreto JWT para firma de tokens
+ * @param {string} secret - Secreto JWT para firma de tokens (HS256)
  * @returns {Function} Middleware de Express para manejar el registro
+ * 
+ * @example
+ * // Uso en rutas
+ * router.post('/register', register(pool, JWT_SECRET));
+ * 
+ * @example
+ * // Ejemplo de request body
+ * POST /api/auth/register
+ * {
+ *   "username": "player1",
+ *   "password": "SecurePass123!",
+ *   "email": "player1@retrogame.cloud",
+ *   "display_name": "Master Player",
+ *   "avatar_url": "https://cdn.retrogame.cloud/avatars/1.png",
+ *   "bio": "Retro gaming enthusiast"
+ * }
+ * 
+ * @throws {400} Username o password faltantes
+ * @throws {400} Username inválido (longitud o caracteres no permitidos)
+ * @throws {400} Email inválido (formato)
+ * @throws {409} Username ya existe en la base de datos
+ * @throws {409} Email ya registrado
+ * @throws {500} Error interno del servidor
  */
 export function register(pool, secret) {
   return async (req, res) => {
@@ -87,6 +118,51 @@ export function register(pool, secret) {
 
 /**
  * Controlador para login de usuario
+ * @description Autentica un usuario existente y genera un token JWT válido.
+ * Este endpoint implementa autenticación segura mediante:
+ * - Búsqueda de usuario por username en PostgreSQL
+ * - Verificación de contraseña con bcrypt.compare()
+ * - Generación de JWT con payload mínimo (userId, username)
+ * - Respuesta sin incluir password_hash por seguridad
+ * - Mensajes de error genéricos para prevenir username enumeration
+ * 
+ * @param {Object} pool - Pool de conexiones de PostgreSQL
+ * @param {string} secret - Secreto JWT para firma de tokens (HS256)
+ * @returns {Function} Middleware de Express para manejar el login
+ * 
+ * @example
+ * // Uso en rutas
+ * router.post('/login', login(pool, JWT_SECRET));
+ * 
+ * @example
+ * // Ejemplo de request body
+ * POST /api/auth/login
+ * {
+ *   "username": "player1",
+ *   "password": "SecurePass123!"
+ * }
+ * 
+ * @example
+ * // Ejemplo de respuesta exitosa (200)
+ * {
+ *   "message": "Login exitoso",
+ *   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+ *   "user": {
+ *     "id": 1,
+ *     "username": "player1",
+ *     "email": "player1@retrogame.cloud",
+ *     "display_name": "Master Player",
+ *     "avatar_url": "https://cdn.retrogame.cloud/avatars/1.png",
+ *     "bio": "Retro gaming enthusiast",
+ *     "created_at": "2024-01-15T10:30:00Z"
+ *   }
+ * }
+ * 
+ * @throws {400} Username o password faltantes
+ * @throws {401} Credenciales inválidas (usuario no existe o password incorrecta)
+ * @throws {500} Error interno del servidor (database connection, etc.)
+ * 
+ * @security El endpoint usa mensajes de error genéricos para prevenir username enumeration attacks
  */
 export function login(pool, secret) {
   return async (req, res) => {
@@ -184,4 +260,3 @@ export function updateProfile(pool) {
     }
   };
 }
-// Test CI/CD
