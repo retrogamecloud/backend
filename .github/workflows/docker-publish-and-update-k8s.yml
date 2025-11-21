@@ -332,7 +332,17 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}'
-          args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --platform=linux/amd64
+          args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --platform=linux/amd64 --json-file-output=snyk-results.json
+
+      - name: Mostrar resultados de Snyk (si existen)
+        if: always()
+        run: |
+          if [ -f "snyk-results.json" ]; then
+            echo "## 🔍 Resultados del escaneo Snyk" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat snyk-results.json | head -100 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Verificar si se generó el archivo SARIF
         id: check-sarif
