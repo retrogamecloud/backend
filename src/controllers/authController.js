@@ -7,6 +7,10 @@ import * as authService from '../services/authService.js';
 
 /**
  * Controlador para registro de usuario
+ * @description Permite registrar un nuevo usuario en el sistema con validación completa
+ * @param {Object} pool - Pool de conexiones de PostgreSQL
+ * @param {string} secret - Secreto JWT para firma de tokens
+ * @returns {Function} Middleware de Express para manejar el registro
  */
 export function register(pool, secret) {
   return async (req, res) => {
