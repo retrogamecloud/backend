@@ -312,7 +312,19 @@ jobs:
           cache-from: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache,mode=max
 
-      - name: Ejecutar Snyk para escanear vulnerabilidades
+      - name: Verificar imagen local
+        run: |
+          echo "🔍 Verificando imagen local..."
+          docker images | grep "${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}" || true
+          docker inspect "${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}" > /dev/null 2>&1
+          if [ $? -eq 0 ]; then
+            echo "✅ Imagen encontrada localmente"
+          else
+            echo "❌ Imagen NO encontrada localmente"
+            exit 1
+          fi
+
+      - name: Ejecutar Snyk para escanear vulnerabilidades en imagen local
         id: snyk-scan
         uses: snyk/actions/docker@master
         continue-on-error: true
@@ -320,7 +332,7 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}'
-          args: --severity-threshold=high --sarif-file-output=snyk-results.sarif
+          args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --platform=linux/amd64
 
       - name: Verificar si se generó el archivo SARIF
         id: check-sarif
