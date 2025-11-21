@@ -128,16 +128,15 @@ jobs:
       - name: Detectar si requiere tests
         id: changes
         run: |
-          # Verificar si algún commit (incluidos los del merge) contiene [no-test] o [skip-tests]
+          # Verificar si el mensaje del commit contiene [no-test] o [skip-tests]
           COMMIT_MSG="$(git log -1 --pretty=%B)"
-          echo "📝 Mensaje del commit más reciente: $COMMIT_MSG"
+          echo "📝 Mensaje del commit: $COMMIT_MSG"
           
-          # Revisar también los commits del merge (últimos 10 commits)
-          ALL_COMMITS="$(git log -10 --pretty=%B)"
-          
-          if echo "$ALL_COMMITS" | grep -qiE '\[no-test\]|\[skip-tests\]'; then
+          if echo "$COMMIT_MSG" | grep -qiE '\[no-test\]|\[skip-tests\]'; then
             echo "should-test=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Se encontró [no-test] o [skip-tests] en algún commit reciente"
+            echo "⏭️ Mensaje del commit indica saltar tests: [no-test] o [skip-tests]"
+            echo "🔍 DEBUG: should-test establecido a: false"
+            cat $GITHUB_OUTPUT
           else
             # En pull requests, comparar con la rama base
             if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -228,8 +227,8 @@ jobs:
           flags: unittests
           name: backend-coverage
 
-## JOB PARA COMPILAR Y PUBLICAR LA IMAGEN DOCKER ##
-  build-and-push:
+## JOB PARA COMPILAR LA IMAGEN DOCKER (SIN PUBLICAR) ##
+  build:
     needs: [check-changes, tests]
     if: |
       always() &&
@@ -258,13 +257,6 @@ jobs:
           registry: ${{ env.REGISTRY_GHCR }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Iniciar sesión en Docker Hub
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY_DOCKERHUB }}
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Generar etiqueta de versión y SHA
         id: version
@@ -301,12 +293,10 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository }}
-            ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ steps.version.outputs.image_tag }}
 
-      - name: Compilar y publicar imagen Docker
+      - name: Compilar imagen Docker (solo build, sin push)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -317,26 +307,35 @@ jobs:
           cache-to: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache,mode=max
           platforms: linux/amd64
 
-      - name: Resumen de imagen publicada
+      - name: Resumen de imagen compilada
         run: |
-          echo "✅ Imagen publicada exitosamente"
+          echo "✅ Imagen compilada exitosamente"
           echo "📦 Versión: ${{ steps.version.outputs.version }}"
           echo "🔖 Tag de imagen: ${{ steps.version.outputs.image_tag }}"
           echo "🔗 SHA: ${{ steps.version.outputs.short_sha }}"
+          echo "🏷️ Imagen temporal: ghcr.io/${{ github.repository }}:${{ steps.version.outputs.image_tag }}"
 
 ## JOB PARA ESCANEO DE SEGURIDAD ##
   security-scan:
-    needs: build-and-push
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
+      packages: read
     outputs:
       has-vulnerabilities: ${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}
     
     steps:
       - name: Clonar repositorio
         uses: actions/checkout@v5
+
+      - name: Iniciar sesión en GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Ejecutar Snyk para escanear vulnerabilidades en imagen Docker
         id: snyk-scan
@@ -345,7 +344,7 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build-and-push.outputs.image_tag }}'
+          image: 'ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}'
           args: --severity-threshold=high --sarif-file-output=snyk-results.sarif
 
       - name: Subir resultados de Snyk a GitHub Security
@@ -360,6 +359,7 @@ jobs:
         run: |
           if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
             echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+            echo "⚠️ SNYK_TOKEN no configurado, saltando verificación" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ steps.snyk-scan.outcome }}" = "failure" ]; then
             echo "::error title=Vulnerabilidades Críticas::Se encontraron vulnerabilidades de seguridad críticas en la imagen."
             echo "❌ **VULNERABILIDADES CRÍTICAS DETECTADAS**" >> $GITHUB_STEP_SUMMARY
@@ -373,14 +373,74 @@ jobs:
         if: always()
         run: |
           echo "## 🔒 Escaneo de Seguridad con Snyk" >> $GITHUB_STEP_SUMMARY
-          echo "Imagen escaneada: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build-and-push.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "Imagen escaneada: ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+
+## JOB PARA PUBLICAR LA IMAGEN A DOCKER HUB ##
+  push:
+    needs: [build, security-scan]
+    if: needs.security-scan.outputs.has-vulnerabilities == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Iniciar sesión en GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Iniciar sesión en Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_DOCKERHUB }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Etiquetar y publicar imagen en Docker Hub
+        run: |
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          SOURCE_IMAGE="ghcr.io/${{ github.repository }}:${IMAGE_TAG}"
+          TARGET_IMAGE="${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${IMAGE_TAG}"
+          TARGET_LATEST="${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:latest"
+          
+          echo "📥 Descargando imagen desde GHCR..."
+          docker pull "${SOURCE_IMAGE}"
+          
+          echo "🏷️ Re-etiquetando imagen para Docker Hub..."
+          docker tag "${SOURCE_IMAGE}" "${TARGET_IMAGE}"
+          
+          echo "📤 Publicando imagen a Docker Hub..."
+          docker push "${TARGET_IMAGE}"
+          
+          # Publicar también como latest si es la rama main
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "🏷️ Etiquetando como latest..."
+            docker tag "${SOURCE_IMAGE}" "${TARGET_LATEST}"
+            docker push "${TARGET_LATEST}"
+            echo "✅ Imagen publicada como latest"
+          fi
+          
+          echo "✅ Imagen publicada exitosamente en Docker Hub"
+
+      - name: Resumen de imagen publicada
+        run: |
+          echo "## 📦 Imagen Publicada en Docker Hub" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versión**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA**: ${{ needs.build.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Imagen**: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
 
 ## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
   update-kubernetes-manifest:
-    needs: [build-and-push, security-scan]
-    if: |
-      github.event_name != 'pull_request' &&
-      needs.security-scan.outputs.has-vulnerabilities == 'false'
+    needs: [build, push]
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -395,8 +455,8 @@ jobs:
 
       - name: Actualizar manifiesto de Kubernetes
         run: |
-          IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
-          VERSION="${{ needs.build-and-push.outputs.version }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          VERSION="${{ needs.build.outputs.version }}"
           SERVICE="${{ github.event.repository.name }}"
           
           # Actualizar la imagen en el manifiesto usando sed
@@ -414,8 +474,8 @@ jobs:
 
       - name: Crear rama y PR con cambios
         run: |
-          VERSION="${{ needs.build-and-push.outputs.version }}"
-          IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+          VERSION="${{ needs.build.outputs.version }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
           SERVICE="${{ github.event.repository.name }}"
           BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
           
@@ -430,7 +490,7 @@ jobs:
             
             git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
-                       -m "SHA: ${{ needs.build-and-push.outputs.short_sha }}" \
+                       -m "SHA: ${{ needs.build.outputs.short_sha }}" \
                        -m "Commit origen: ${{ github.sha }}" \
                        -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
             
@@ -442,7 +502,7 @@ jobs:
               --base main \
               --head "${BRANCH_NAME}" \
               --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ needs.build-and-push.outputs.short_sha }}, Commit: ${{ github.sha }}"
+              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ needs.build.outputs.short_sha }}, Commit: ${{ github.sha }}"
             
             echo "✅ PR creado en el repositorio de Kubernetes"
           fi
@@ -454,7 +514,7 @@ jobs:
           echo "## Actualizacion de Kubernetes Completada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Servicio**: ${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ needs.build-and-push.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag de imagen**: ${{ needs.build-and-push.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag de imagen**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.K8S_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repositorio**: ${{ env.K8S_REPO }}" >> $GITHUB_STEP_SUMMARY
