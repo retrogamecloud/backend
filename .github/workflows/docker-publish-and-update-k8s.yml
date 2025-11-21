@@ -7,12 +7,20 @@ on:
     paths-ignore:
       - '**.md'
       - '.gitignore'
+    tags:
+      - 'v*.*.*'
   pull_request:
     branches:
       - main
     paths-ignore:
       - '**.md'
       - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag personalizado (ej: v1.0.75). Si se deja vacío, usa SHA del commit'
+        required: false
+        type: string
 
 env:
   REGISTRY_GHCR: ghcr.io
@@ -103,15 +111,31 @@ jobs:
       - name: Generar etiqueta de versión y SHA
         id: version
         run: |
-          # Contar commits desde el inicio
-          COMMIT_COUNT=$(git rev-list --count HEAD)
-          VERSION="v1.0.${COMMIT_COUNT}"
           SHORT_SHA=$(git rev-parse --short HEAD)
+          
+          # Determinar el tag a usar
+          if [ -n "${{ inputs.tag }}" ]; then
+            # Tag personalizado desde workflow_dispatch
+            VERSION="${{ inputs.tag }}"
+            IMAGE_TAG="${{ inputs.tag }}"
+            echo "Usando tag personalizado: ${VERSION}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Tag desde push de tag/release
+            VERSION="${{ github.ref_name }}"
+            IMAGE_TAG="${{ github.ref_name }}"
+            echo "Usando tag de release: ${VERSION}"
+          else
+            # Por defecto, usar SHA del commit
+            VERSION="sha-${SHORT_SHA}"
+            IMAGE_TAG="sha-${SHORT_SHA}"
+            echo "Usando SHA del commit: ${VERSION}"
+          fi
           
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "Versión generada: ${VERSION}"
-          echo "SHA corto: ${SHORT_SHA}"
+          echo "Tag de imagen: ${IMAGE_TAG}"
 
       - name: Extraer metadatos
         id: meta
@@ -121,9 +145,8 @@ jobs:
             ghcr.io/${{ github.repository }}
             ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}
           tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.version }}
-            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ steps.version.outputs.image_tag }}
 
       - name: Compilar y publicar imagen Docker
         uses: docker/build-push-action@v6
@@ -140,7 +163,8 @@ jobs:
         run: |
           echo "✅ Imagen publicada exitosamente"
           echo "📦 Versión: ${{ steps.version.outputs.version }}"
-          echo "🔖 SHA: sha-${{ steps.version.outputs.short_sha }}"
+          echo "🔖 Tag de imagen: ${{ steps.version.outputs.image_tag }}"
+          echo "🔗 SHA: ${{ steps.version.outputs.short_sha }}"
 
 ## JOB PARA ESCANEO DE SEGURIDAD ##
   security-scan:
@@ -196,14 +220,23 @@ jobs:
       - name: Obtener información de la imagen desde el job anterior
         id: image_info
         run: |
-          # Reutilizar el SHA del commit actual sin clonar de nuevo
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          COMMIT_COUNT=${{ github.run_number }}
-          VERSION="v1.0.${COMMIT_COUNT}"
+          
+          # Determinar el tag a usar (mismo lógica que en build)
+          if [ -n "${{ inputs.tag }}" ]; then
+            VERSION="${{ inputs.tag }}"
+            IMAGE_TAG="${{ inputs.tag }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref_name }}"
+            IMAGE_TAG="${{ github.ref_name }}"
+          else
+            VERSION="sha-${SHORT_SHA}"
+            IMAGE_TAG="sha-${SHORT_SHA}"
+          fi
           
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "image_tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
       - name: Actualizar manifiesto de Kubernetes
         run: |
