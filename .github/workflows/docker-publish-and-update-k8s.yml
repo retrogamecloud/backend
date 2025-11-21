@@ -7,22 +7,177 @@ on:
     paths-ignore:
       - '**.md'
       - '.gitignore'
+    tags:
+      - 'v*.*.*'
   pull_request:
     branches:
       - main
     paths-ignore:
       - '**.md'
       - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag personalizado (ej: v1.0.75). Si se deja vacío, usa SHA del commit'
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY_GHCR: ghcr.io
   REGISTRY_DOCKERHUB: docker.io
-  IMAGE_NAME: retrogamecloud/backend
+  DOCKERHUB_ORG: retrogamehub
   K8S_REPO: retrogamecloud/kubernetes
   K8S_MANIFEST_FILE: 02-backend.yaml
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+## JOB PARA LINTING DE CÓDIGO ##
+  eslint-prettier:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    continue-on-error: true
+    
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v5
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Ejecutar ESLint
+        id: eslint
+        continue-on-error: true
+        run: |
+          # Verificar si el script existe
+          if npm run | grep -q "lint"; then
+            if npm run lint; then
+              echo "eslint_failed=false" >> $GITHUB_OUTPUT
+            else
+              echo "eslint_failed=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "⏭️ Script lint no configurado, saltando verificación de ESLint"
+            echo "eslint_failed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Ejecutar Prettier check
+        id: prettier
+        continue-on-error: true
+        run: |
+          # Verificar si el script existe
+          if npm run | grep -q "format:check"; then
+            if npm run format:check; then
+              echo "prettier_failed=false" >> $GITHUB_OUTPUT
+            else
+              echo "prettier_failed=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "⏭️ Script format:check no configurado, saltando verificación de Prettier"
+            echo "prettier_failed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generar resumen de linting
+        if: always()
+        run: |
+          echo "## 🔍 Resultados de Linting" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.eslint.outputs.eslint_failed }}" = "true" ]; then
+            echo "- ⚠️ **ESLint**: Se encontraron problemas de código" >> $GITHUB_STEP_SUMMARY
+            echo "::warning file=eslint,title=Problemas de ESLint::Se encontraron errores de linting. Ejecuta 'npm run lint' para ver los detalles."
+          else
+            echo "- ✅ **ESLint**: Sin errores" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.prettier.outputs.prettier_failed }}" = "true" ]; then
+            echo "- ⚠️ **Prettier**: Se encontraron problemas de formato" >> $GITHUB_STEP_SUMMARY
+            echo "::warning file=prettier,title=Problemas de Formato::Se encontraron problemas de formato. Ejecuta 'npm run format' para corregirlos automáticamente."
+          else
+            echo "- ✅ **Prettier**: Formato correcto" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.eslint.outputs.eslint_failed }}" = "true" ] || [ "${{ steps.prettier.outputs.prettier_failed }}" = "true" ]; then
+            echo "ℹ️ **Nota**: Se encontraron problemas de linting, pero el workflow continuará. Considera corregirlos para mantener la calidad del código." >> $GITHUB_STEP_SUMMARY
+            echo "::notice title=Linting Informativo::El workflow continúa a pesar de los problemas de linting. Revisa las advertencias para mejorar la calidad del código."
+          fi
+
+## JOB PARA DETECTAR TIPO DE CAMBIOS ##
+  check-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should-test: ${{ steps.changes.outputs.should-test }}
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      
+      - name: Detectar si requiere tests
+        id: changes
+        run: |
+          # Verificar si el mensaje del commit contiene [no-test] o [skip-tests]
+          COMMIT_MSG="$(git log -1 --pretty=%B)"
+          echo "📝 Mensaje del commit: $COMMIT_MSG"
+          
+          if echo "$COMMIT_MSG" | grep -qiE '\[no-test\]|\[skip-tests\]'; then
+            echo "should-test=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Mensaje del commit indica saltar tests: [no-test] o [skip-tests]"
+            echo "🔍 DEBUG: should-test establecido a: false"
+            cat $GITHUB_OUTPUT
+          else
+            # En pull requests, comparar con la rama base
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || echo "")
+            else
+              # En push, comparar con el commit anterior
+              FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git ls-files)
+            fi
+            
+            echo "📁 Archivos modificados:"
+            echo "$FILES"
+            echo ""
+            
+            # Si no hay archivos, saltar tests
+            if [ -z "$FILES" ]; then
+              echo "should-test=false" >> $GITHUB_OUTPUT
+              echo "⏭️ Sin cambios detectados, saltando tests"
+            else
+              # Verificar si TODOS los archivos son documentación
+              NON_DOC_FILES=$(echo "$FILES" | grep -vE '\.(md|txt)$|^docs/|^\.github/workflows/|^\.gitignore$|^LICENSE$|^\.prettierrc$|^\.prettierignore$|^\.dockerignore$|^\.env\.example$' || true)
+              
+              if [ -z "$NON_DOC_FILES" ]; then
+                echo "should-test=false" >> $GITHUB_OUTPUT
+                echo "⏭️ Solo cambios en documentación/configuración, saltando tests"
+              else
+                echo "should-test=true" >> $GITHUB_OUTPUT
+                echo "✅ Cambios en código detectados, ejecutando tests"
+                echo "Archivos de código modificados:"
+                echo "$NON_DOC_FILES"
+              fi
+            fi
+          fi
+
+## JOB PARA EJECUTAR TESTS Y ANALISIS DE CALIDAD ##
+  tests:
+    needs: check-changes
+    if: ${{ needs.check-changes.outputs.should-test == 'true' }}
     runs-on: ubuntu-latest
     
     steps:
@@ -47,20 +202,51 @@ jobs:
       - name: Generar reporte de cobertura
         run: npm run test:coverage
 
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=retrogamecloud_backend
+            -Dsonar.organization=retrogamecloud
+            -Dsonar.sources=src
+            -Dsonar.tests=tests
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
+      - name: Verificar resultado de SonarCloud
+        if: always()
+        run: |
+          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
+            echo "::warning title=SonarCloud Deshabilitado::SONAR_TOKEN no configurado. El análisis de SonarCloud se omitió."
+            echo "ℹ️ Para habilitar SonarCloud, configura el secreto SONAR_TOKEN en el repositorio." >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Subir reporte de cobertura
-        uses: codecov/codecov-action@v5 # Forzar a v3 para testear dependabot.
+        uses: codecov/codecov-action@v5
         if: always()
         with:
           files: ./coverage/lcov.info
           flags: unittests
           name: backend-coverage
 
-  build-and-push:
-    needs: test
+## JOB PARA COMPILAR LA IMAGEN DOCKER (SIN PUBLICAR) ##
+  build:
+    needs: [check-changes, tests]
+    if: |
+      always() &&
+      (needs.tests.result == 'success' || needs.tests.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      security-events: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+      has-vulnerabilities: ${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}
 
     steps:
       - name: Clonar repositorio
@@ -78,6 +264,152 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generar etiqueta de versión y SHA
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          
+          # Determinar el tag a usar
+          if [ -n "${{ inputs.tag }}" ]; then
+            # Tag personalizado desde workflow_dispatch
+            VERSION="${{ inputs.tag }}"
+            IMAGE_TAG="${{ inputs.tag }}"
+            echo "Usando tag personalizado: ${VERSION}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Tag desde push de tag/release
+            VERSION="${{ github.ref_name }}"
+            IMAGE_TAG="${{ github.ref_name }}"
+            echo "Usando tag de release: ${VERSION}"
+          else
+            # Por defecto, usar SHA del commit
+            VERSION="sha-${SHORT_SHA}"
+            IMAGE_TAG="sha-${SHORT_SHA}"
+            echo "Usando SHA del commit: ${VERSION}"
+          fi
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "Versión generada: ${VERSION}"
+          echo "Tag de imagen: ${IMAGE_TAG}"
+
+      - name: Extraer metadatos
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.image_tag }}
+
+      - name: Compilar imagen Docker (cargada localmente)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache,mode=max
+
+      - name: Verificar imagen local
+        run: |
+          echo "🔍 Verificando imagen local..."
+          docker images | grep "${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}" || true
+          docker inspect "${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}" > /dev/null 2>&1
+          if [ $? -eq 0 ]; then
+            echo "✅ Imagen encontrada localmente"
+          else
+            echo "❌ Imagen NO encontrada localmente"
+            exit 1
+          fi
+
+      - name: Ejecutar Snyk para escanear vulnerabilidades en imagen local
+        id: snyk-scan
+        uses: snyk/actions/docker@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}'
+          args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --platform=linux/amd64 --json-file-output=snyk-results.json
+
+      - name: Mostrar resultados de Snyk (si existen)
+        if: always()
+        run: |
+          if [ -f "snyk-results.json" ]; then
+            echo "## 🔍 Resultados del escaneo Snyk" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat snyk-results.json | head -100 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Verificar si se generó el archivo SARIF
+        id: check-sarif
+        if: always()
+        run: |
+          if [ -f "snyk-results.sarif" ]; then
+            echo "sarif-exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Archivo SARIF generado"
+          else
+            echo "sarif-exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No se generó archivo SARIF"
+          fi
+
+      - name: Subir resultados de Snyk a GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: steps.check-sarif.outputs.sarif-exists == 'true'
+        with:
+          sarif_file: 'snyk-results.sarif'
+
+      - name: Verificar vulnerabilidades críticas
+        id: check-vulnerabilities
+        if: always()
+        run: |
+          if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
+            echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+            echo "⚠️ SNYK_TOKEN no configurado, saltando verificación" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.snyk-scan.outcome }}" = "failure" ]; then
+            echo "::error title=Vulnerabilidades Críticas::Se encontraron vulnerabilidades de seguridad críticas en la imagen."
+            echo "❌ **VULNERABILIDADES CRÍTICAS DETECTADAS**" >> $GITHUB_STEP_SUMMARY
+            echo "has-vulnerabilities=true" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "✅ No se encontraron vulnerabilidades críticas" >> $GITHUB_STEP_SUMMARY
+            echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Resumen de imagen compilada
+        run: |
+          echo "## 🐳 Build y Security Scan Completados" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versión**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ steps.version.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA**: ${{ steps.version.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Imagen**: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+
+## JOB PARA PUBLICAR LA IMAGEN A DOCKER HUB ##
+  push:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Clonar repositorio
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Generar tag nuevamente (para consistency)
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
       - name: Iniciar sesión en Docker Hub
         uses: docker/login-action@v3
         with:
@@ -85,50 +417,42 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Generar etiqueta de versión y SHA
-        id: version
-        run: |
-          # Contar commits desde el inicio
-          COMMIT_COUNT=$(git rev-list --count HEAD)
-          VERSION="v1.0.${COMMIT_COUNT}"
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "Versión generada: ${VERSION}"
-          echo "SHA corto: ${SHORT_SHA}"
-
-      - name: Extraer metadatos
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Iniciar sesión en GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          images: |
-            ghcr.io/retrogamecloud/backend
-            retrogamehub/backend
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.version }}
-            type=sha,prefix=sha-,format=short
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compilar y publicar imagen Docker
+      - name: Compilar y publicar imagen en Docker Hub y GHCR
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
-          platforms: linux/amd64
+          tags: |
+            ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build.outputs.image_tag }}
+            ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:latest
+            ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}
+            ghcr.io/${{ github.repository }}:latest
+          cache-from: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache,mode=max
 
       - name: Resumen de imagen publicada
         run: |
-          echo "✅ Imagen publicada exitosamente"
-          echo "📦 Versión: ${{ steps.version.outputs.version }}"
-          echo "🔖 SHA: sha-${{ steps.version.outputs.short_sha }}"
+          echo "## 📦 Imagen Publicada" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versión**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA**: ${{ needs.build.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registries:**" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐙 GHCR: \`ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 Docker Hub: \`${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
 
+## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
   update-kubernetes-manifest:
-    needs: build-and-push
+    needs: [build, push]
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -141,28 +465,17 @@ jobs:
           token: ${{ secrets.K8S_UPDATE_TOKEN }}
           ref: main
 
-      - name: Obtener información de la imagen desde el job anterior
-        id: image_info
-        run: |
-          # Reutilizar el SHA del commit actual sin clonar de nuevo
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          COMMIT_COUNT=${{ github.run_number }}
-          VERSION="v1.0.${COMMIT_COUNT}"
-          
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "image_tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
-
       - name: Actualizar manifiesto de Kubernetes
         run: |
-          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
-          VERSION="${{ steps.image_info.outputs.version }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          VERSION="${{ needs.build.outputs.version }}"
+          SERVICE="${{ github.event.repository.name }}"
           
           # Actualizar la imagen en el manifiesto usando sed
-          sed -i "s|image: retrogamehub/backend:.*|image: retrogamehub/backend:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
           
           # Actualizar el comentario con la versión
-          sed -i "s|# Imagen del backend desde DockerHub.*|# Imagen del backend desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|# Imagen de ${SERVICE} desde DockerHub.*|# Imagen de ${SERVICE} desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
           
           echo "✅ Manifiesto actualizado con imagen: ${IMAGE_TAG}"
 
@@ -173,9 +486,10 @@ jobs:
 
       - name: Crear rama y PR con cambios
         run: |
-          VERSION="${{ steps.image_info.outputs.version }}"
-          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
-          BRANCH_NAME="auto/backend-${IMAGE_TAG}"
+          VERSION="${{ needs.build.outputs.version }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          SERVICE="${{ github.event.repository.name }}"
+          BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
           
           git add ${{ env.K8S_MANIFEST_FILE }}
           
@@ -186,11 +500,11 @@ jobs:
             # Crear rama para el PR
             git checkout -b "${BRANCH_NAME}"
             
-            git commit -m "chore: Actualizar imagen de backend a ${IMAGE_TAG} [skip ci]" \
+            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
-                       -m "SHA: ${{ steps.image_info.outputs.short_sha }}" \
+                       -m "SHA: ${{ needs.build.outputs.short_sha }}" \
                        -m "Commit origen: ${{ github.sha }}" \
-                       -m "Actualizacion automatica desde CI/CD del repositorio backend"
+                       -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
             
             git push origin "${BRANCH_NAME}"
             
@@ -199,8 +513,8 @@ jobs:
               --repo ${{ env.K8S_REPO }} \
               --base main \
               --head "${BRANCH_NAME}" \
-              --title "chore(backend): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de backend - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ steps.image_info.outputs.short_sha }}, Commit: ${{ github.sha }}"
+              --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
+              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ needs.build.outputs.short_sha }}, Commit: ${{ github.sha }}"
             
             echo "✅ PR creado en el repositorio de Kubernetes"
           fi
@@ -211,7 +525,8 @@ jobs:
         run: |
           echo "## Actualizacion de Kubernetes Completada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ steps.image_info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag de imagen**: ${{ steps.image_info.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Servicio**: ${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag de imagen**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.K8S_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repositorio**: ${{ env.K8S_REPO }}" >> $GITHUB_STEP_SUMMARY
