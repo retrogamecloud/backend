@@ -309,4 +309,4 @@ Este servicio unifica lo que antes eran 5 microservicios independientes:
 - ✅ Transacciones atómicas entre entidades
 - ✅ Reducción de latencia (sin llamadas entre servicios)
 - ✅ Base de datos única con esquema coherente
-- ✅ Despliegue simplificado
+- ✅ Despliegue simplificado# Test CI/CD - Sat Nov 22 07:54:00 CET 2025
