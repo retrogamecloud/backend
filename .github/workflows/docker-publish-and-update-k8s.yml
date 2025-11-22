@@ -7,46 +7,29 @@ on:
     paths-ignore:
       - '**.md'
       - '.gitignore'
-    tags:
-      - 'v*.*.*'
   pull_request:
     branches:
       - main
     paths-ignore:
       - '**.md'
       - '.gitignore'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag personalizado (ej: v1.0.75). Si se deja vacío, usa SHA del commit'
-        required: false
-        type: string
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   REGISTRY_GHCR: ghcr.io
   REGISTRY_DOCKERHUB: docker.io
-  DOCKERHUB_ORG: retrogamehub
+  IMAGE_NAME: retrogamecloud/backend
   K8S_REPO: retrogamecloud/kubernetes
   K8S_MANIFEST_FILE: 02-backend.yaml
-
-permissions:
-  contents: read
+  INFRASTRUCTURE_REPO: retrogamecloud/infrastructure
+  INFRASTRUCTURE_MANIFEST_FILE: k8s/backend/deployment.yaml
 
 jobs:
-## JOB PARA LINTING DE CÓDIGO ##
-  eslint-prettier:
+  test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    continue-on-error: true
     
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Configurar Node.js
         uses: actions/setup-node@v6
@@ -202,55 +185,24 @@ jobs:
       - name: Generar reporte de cobertura
         run: npm run test:coverage
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v6.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.projectKey=retrogamecloud_backend
-            -Dsonar.organization=retrogamecloud
-            -Dsonar.sources=src
-            -Dsonar.tests=tests
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-
-      - name: Verificar resultado de SonarCloud
-        if: always()
-        run: |
-          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
-            echo "::warning title=SonarCloud Deshabilitado::SONAR_TOKEN no configurado. El análisis de SonarCloud se omitió."
-            echo "ℹ️ Para habilitar SonarCloud, configura el secreto SONAR_TOKEN en el repositorio." >> $GITHUB_STEP_SUMMARY
-          fi
-
       - name: Subir reporte de cobertura
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v3
         if: always()
         with:
           files: ./coverage/lcov.info
           flags: unittests
           name: backend-coverage
 
-## JOB PARA COMPILAR LA IMAGEN DOCKER (SIN PUBLICAR) ##
-  build:
-    needs: [check-changes, tests]
-    if: |
-      always() &&
-      (needs.tests.result == 'success' || needs.tests.result == 'skipped')
+  build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-      security-events: write
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      image_tag: ${{ steps.version.outputs.image_tag }}
-      short_sha: ${{ steps.version.outputs.short_sha }}
-      has-vulnerabilities: ${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}
 
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -264,49 +216,43 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Iniciar sesión en Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_DOCKERHUB }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Generar etiqueta de versión y SHA
         id: version
         run: |
+          # Contar commits desde el inicio
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          VERSION="v1.0.${COMMIT_COUNT}"
           SHORT_SHA=$(git rev-parse --short HEAD)
-          
-          # Determinar el tag a usar
-          if [ -n "${{ inputs.tag }}" ]; then
-            # Tag personalizado desde workflow_dispatch
-            VERSION="${{ inputs.tag }}"
-            IMAGE_TAG="${{ inputs.tag }}"
-            echo "Usando tag personalizado: ${VERSION}"
-          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            # Tag desde push de tag/release
-            VERSION="${{ github.ref_name }}"
-            IMAGE_TAG="${{ github.ref_name }}"
-            echo "Usando tag de release: ${VERSION}"
-          else
-            # Por defecto, usar SHA del commit
-            VERSION="sha-${SHORT_SHA}"
-            IMAGE_TAG="sha-${SHORT_SHA}"
-            echo "Usando SHA del commit: ${VERSION}"
-          fi
           
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "Versión generada: ${VERSION}"
-          echo "Tag de imagen: ${IMAGE_TAG}"
+          echo "SHA corto: ${SHORT_SHA}"
 
       - name: Extraer metadatos
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}
+            ghcr.io/retrogamecloud/backend
+            retrogamehub/backend
           tags: |
-            type=raw,value=${{ steps.version.outputs.image_tag }}
+            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=sha,prefix=sha-,format=short
 
-      - name: Compilar imagen Docker (cargada localmente)
-        uses: docker/build-push-action@v6
+      - name: Compilar y publicar imagen Docker
+        uses: docker/build-push-action@v5
         with:
           context: .
-          load: true
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ github.repository }}:buildcache
@@ -454,17 +400,10 @@ jobs:
 
       - name: Resumen de imagen publicada
         run: |
-          echo "## 📦 Imagen Publicada" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Versión**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **SHA**: ${{ needs.build.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Registries:**" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐙 GHCR: \`ghcr.io/${{ github.repository }}:${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 Docker Hub: \`${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Imagen publicada exitosamente"
+          echo "📦 Versión: ${{ steps.version.outputs.version }}"
+          echo "🔖 SHA: sha-${{ steps.version.outputs.short_sha }}"
 
-## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
   update-kubernetes-manifest:
     needs: [build, push]
     if: |
@@ -477,23 +416,34 @@ jobs:
 
     steps:
       - name: Clonar repositorio de Kubernetes
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           repository: ${{ env.K8S_REPO }}
           token: ${{ secrets.K8S_UPDATE_TOKEN }}
           ref: main
 
+      - name: Obtener información de la imagen desde el job anterior
+        id: image_info
+        run: |
+          # Reutilizar el SHA del commit actual sin clonar de nuevo
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          COMMIT_COUNT=${{ github.run_number }}
+          VERSION="v1.0.${COMMIT_COUNT}"
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "image_tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+
       - name: Actualizar manifiesto de Kubernetes
         run: |
-          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
-          VERSION="${{ needs.build.outputs.version }}"
-          SERVICE="${{ github.event.repository.name }}"
+          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
+          VERSION="${{ steps.image_info.outputs.version }}"
           
           # Actualizar la imagen en el manifiesto usando sed
-          sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|image: retrogamehub/backend:.*|image: retrogamehub/backend:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
           
           # Actualizar el comentario con la versión
-          sed -i "s|# Imagen de ${SERVICE} desde DockerHub.*|# Imagen de ${SERVICE} desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|# Imagen del backend desde DockerHub.*|# Imagen del backend desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
           
           echo "✅ Manifiesto actualizado con imagen: ${IMAGE_TAG}"
 
@@ -504,10 +454,9 @@ jobs:
 
       - name: Crear rama y PR con cambios
         run: |
-          VERSION="${{ needs.build.outputs.version }}"
-          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
-          SERVICE="${{ github.event.repository.name }}"
-          BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
+          VERSION="${{ steps.image_info.outputs.version }}"
+          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
+          BRANCH_NAME="auto/backend-${IMAGE_TAG}"
           
           git add ${{ env.K8S_MANIFEST_FILE }}
           
@@ -518,11 +467,11 @@ jobs:
             # Crear rama para el PR
             git checkout -b "${BRANCH_NAME}"
             
-            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
+            git commit -m "chore: Actualizar imagen de backend a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
-                       -m "SHA: ${{ needs.build.outputs.short_sha }}" \
+                       -m "SHA: ${{ steps.image_info.outputs.short_sha }}" \
                        -m "Commit origen: ${{ github.sha }}" \
-                       -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
+                       -m "Actualizacion automatica desde CI/CD del repositorio backend"
             
             git push origin "${BRANCH_NAME}"
             
@@ -531,8 +480,8 @@ jobs:
               --repo ${{ env.K8S_REPO }} \
               --base main \
               --head "${BRANCH_NAME}" \
-              --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ needs.build.outputs.short_sha }}, Commit: ${{ github.sha }}"
+              --title "chore(backend): Actualizar a ${IMAGE_TAG}" \
+              --body "Actualizacion automatica de backend - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ steps.image_info.outputs.short_sha }}, Commit: ${{ github.sha }}"
             
             echo "✅ PR creado en el repositorio de Kubernetes"
           fi
@@ -543,8 +492,89 @@ jobs:
         run: |
           echo "## Actualizacion de Kubernetes Completada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Servicio**: ${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag de imagen**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.image_info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag de imagen**: ${{ steps.image_info.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.K8S_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repositorio**: ${{ env.K8S_REPO }}" >> $GITHUB_STEP_SUMMARY
+
+  update-infrastructure-manifest:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Clonar repositorio de Infrastructure
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.INFRASTRUCTURE_REPO }}
+          token: ${{ secrets.K8S_UPDATE_TOKEN }}
+          ref: main
+
+      - name: Obtener información de la imagen
+        id: image_info
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          COMMIT_COUNT=${{ github.run_number }}
+          VERSION="v1.0.${COMMIT_COUNT}"
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "image_tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Actualizar deployment de Infrastructure
+        run: |
+          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
+          VERSION="${{ steps.image_info.outputs.version }}"
+          
+          # Actualizar la imagen en el deployment
+          sed -i "s|image: retrogamehub/backend:.*|image: retrogamehub/backend:${IMAGE_TAG}  # Will be updated by CI/CD|g" ${{ env.INFRASTRUCTURE_MANIFEST_FILE }}
+          
+          echo "✅ Deployment actualizado con imagen: ${IMAGE_TAG}"
+
+      - name: Configurar Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+      - name: Crear rama y PR con cambios en Infrastructure
+        run: |
+          VERSION="${{ steps.image_info.outputs.version }}"
+          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
+          BRANCH_NAME="auto/backend-${IMAGE_TAG}"
+          
+          git add ${{ env.INFRASTRUCTURE_MANIFEST_FILE }}
+          
+          if git diff --staged --quiet; then
+            echo "No hay cambios en el deployment"
+          else
+            git checkout -b "${BRANCH_NAME}"
+            
+            git commit -m "chore: Actualizar imagen de backend a ${IMAGE_TAG} [skip ci]" \
+                       -m "Version: ${VERSION}" \
+                       -m "SHA: ${{ steps.image_info.outputs.short_sha }}" \
+                       -m "Commit origen: ${{ github.sha }}" \
+                       -m "Actualizacion automatica desde CI/CD del repositorio backend"
+            
+            git push origin "${BRANCH_NAME}"
+            
+            gh pr create \
+              --repo ${{ env.INFRASTRUCTURE_REPO }} \
+              --base main \
+              --head "${BRANCH_NAME}" \
+              --title "chore(backend): Actualizar a ${IMAGE_TAG}" \
+              --body "Actualizacion automatica de backend - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ steps.image_info.outputs.short_sha }}, Commit: ${{ github.sha }}"
+            
+            echo "✅ PR creado en el repositorio de Infrastructure"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
+
+      - name: Resumen Infrastructure
+        run: |
+          echo "## Actualizacion de Infrastructure Completada" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.image_info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag de imagen**: ${{ steps.image_info.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Manifiesto actualizado**: ${{ env.INFRASTRUCTURE_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repositorio**: ${{ env.INFRASTRUCTURE_REPO }}" >> $GITHUB_STEP_SUMMARY
