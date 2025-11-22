@@ -228,7 +228,7 @@ jobs:
       - name: Clonar repositorio de Kubernetes (ArgoCD manifests)
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.ARGOCD_REPO }}
+          repository: ${{ env.INFRASTRUCTURE_REPO }}
           token: ${{ secrets.PAT_TOKEN }}
           ref: main
 
