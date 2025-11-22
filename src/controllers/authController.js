@@ -1,5 +1,6 @@
 // ============================================================================
 // CONTROLADORES DE AUTENTICACIÓN
+// Versión: 1.0.1 - Workflow actualizado para sincronizar kubernetes e infrastructure
 // ============================================================================
 
 import * as userRepo from '../repositories/userRepository.js';
