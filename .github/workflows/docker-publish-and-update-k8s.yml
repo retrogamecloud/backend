@@ -29,10 +29,10 @@ jobs:
     
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Configurar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -50,7 +50,7 @@ jobs:
         run: npm run test:coverage
 
       - name: Subir reporte de cobertura
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         if: always()
         with:
           files: ./coverage/lcov.info
@@ -66,7 +66,7 @@ jobs:
 
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -113,7 +113,7 @@ jobs:
             type=sha,prefix=sha-,format=short
 
       - name: Compilar y publicar imagen Docker
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
@@ -137,7 +137,7 @@ jobs:
 
     steps:
       - name: Clonar repositorio de Kubernetes
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ env.K8S_REPO }}
           token: ${{ secrets.PAT_TOKEN }}
@@ -226,7 +226,7 @@ jobs:
 
     steps:
       - name: Clonar repositorio de Kubernetes (ArgoCD manifests)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ env.ARGOCD_REPO }}
           token: ${{ secrets.PAT_TOKEN }}
