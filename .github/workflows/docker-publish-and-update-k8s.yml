@@ -467,12 +467,36 @@ jobs:
           echo "- 🐳 Docker Hub: \`${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
 
 ## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
-  update-kubernetes-manifest:
+  create-update-branch:
     needs: [build, push]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      branch_name: ${{ steps.branch.outputs.branch_name }}
+      service: ${{ steps.branch.outputs.service }}
+      image_tag: ${{ steps.branch.outputs.image_tag }}
+      version: ${{ steps.branch.outputs.version }}
+    steps:
+      - name: Preparar nombre de rama
+        id: branch
+        run: |
+          SERVICE="${{ github.event.repository.name }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
+          VERSION="${{ needs.build.outputs.version }}"
+
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "service=${SERVICE}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+  update-kubernetes-manifest:
+    needs: [create-update-branch]
     if: |
       always() &&
       github.event_name != 'pull_request' &&
-      needs.push.result == 'success'
+      needs.create-update-branch.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -487,9 +511,9 @@ jobs:
 
       - name: Actualizar manifiesto de Kubernetes
         run: |
-          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
-          VERSION="${{ needs.build.outputs.version }}"
-          SERVICE="${{ github.event.repository.name }}"
+          IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
+          VERSION="${{ needs.create-update-branch.outputs.version }}"
+          SERVICE="${{ needs.create-update-branch.outputs.service }}"
           
           # Actualizar la imagen en el manifiesto usando sed
           sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
@@ -506,10 +530,10 @@ jobs:
 
       - name: Crear rama y PR con cambios
         run: |
-          VERSION="${{ needs.build.outputs.version }}"
-          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
-          SERVICE="${{ github.event.repository.name }}"
-          BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
+          VERSION="${{ needs.create-update-branch.outputs.version }}"
+          IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
+          SERVICE="${{ needs.create-update-branch.outputs.service }}"
+          BRANCH_NAME="${{ needs.create-update-branch.outputs.branch_name }}"
           
           git add ${{ env.K8S_MANIFEST_FILE }}
           
@@ -522,7 +546,6 @@ jobs:
             
             git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
-                       -m "SHA: ${{ needs.build.outputs.short_sha }}" \
                        -m "Commit origen: ${{ github.sha }}" \
                        -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
             
@@ -534,7 +557,7 @@ jobs:
               --base main \
               --head "${BRANCH_NAME}" \
               --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ needs.build.outputs.short_sha }}, Commit: ${{ github.sha }}"
+              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, Commit: ${{ github.sha }}"
             
             echo "✅ PR creado en el repositorio de Kubernetes"
           fi
@@ -545,19 +568,19 @@ jobs:
         run: |
           echo "## Actualizacion de Kubernetes completada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Servicio**: ${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag de imagen**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Servicio**: ${{ needs.create-update-branch.outputs.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.create-update-branch.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag de imagen**: ${{ needs.create-update-branch.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.K8S_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repositorio**: ${{ env.K8S_REPO }}" >> $GITHUB_STEP_SUMMARY
 
 ## JOB PARA ACTUALIZAR EL MANIFIESTO DE ARGOCD Y CREAR UNA PR ##
   update-argocd-manifest:
-    needs: [build, push]
+    needs: [create-update-branch]
     if: |
       always() &&
       github.event_name != 'pull_request' &&
-      needs.push.result == 'success'
+      needs.create-update-branch.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -572,9 +595,9 @@ jobs:
 
       - name: Actualizar manifiesto de Kubernetes
         run: |
-          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
-          VERSION="${{ needs.build.outputs.version }}"
-          SERVICE="${{ github.event.repository.name }}"
+          IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
+          VERSION="${{ needs.create-update-branch.outputs.version }}"
+          SERVICE="${{ needs.create-update-branch.outputs.service }}"
           
           # Actualizar la imagen en el deployment de ArgoCD
           sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${IMAGE_TAG}|g" ${{ env.ARGOCD_MANIFEST_FILE }}
@@ -591,10 +614,10 @@ jobs:
 
       - name: Crear rama y PR con cambios en ArgoCD
         run: |
-          VERSION="${{ needs.build.outputs.version }}"
-          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
-          SERVICE="${{ github.event.repository.name }}"
-          BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
+          VERSION="${{ needs.create-update-branch.outputs.version }}"
+          IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
+          SERVICE="${{ needs.create-update-branch.outputs.service }}"
+          BRANCH_NAME="${{ needs.create-update-branch.outputs.branch_name }}"
           
           git add ${{ env.ARGOCD_MANIFEST_FILE }}
           
@@ -607,7 +630,6 @@ jobs:
             
             git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
-                       -m "SHA: ${{ needs.build.outputs.short_sha }}" \
                        -m "Commit origen: ${{ github.sha }}" \
                        -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
             
@@ -619,7 +641,7 @@ jobs:
               --base main \
               --head "${BRANCH_NAME}" \
               --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ needs.build.outputs.short_sha }}, Commit: ${{ github.sha }}"
+              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, Commit: ${{ github.sha }}"
             
             echo "✅ PR creado en el repositorio de Kubernetes (ArgoCD)"
           fi
@@ -630,8 +652,8 @@ jobs:
         run: |
           echo "## Actualizacion de ArgoCD completada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Servicio**: ${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag de imagen**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Servicio**: ${{ needs.create-update-branch.outputs.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.create-update-branch.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag de imagen**: ${{ needs.create-update-branch.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.ARGOCD_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repositorio**: ${{ env.ARGOCD_REPO }}" >> $GITHUB_STEP_SUMMARY
