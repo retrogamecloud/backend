@@ -428,14 +428,20 @@ jobs:
         id: final-vulnerabilities
         if: always()
         run: |
-          # Si check-vulnerabilities se ejecutó, usar su resultado; si no, usar el de skip-snyk (false por defecto)
-          if [ "${{ steps.check-vulnerabilities.outcome }}" != "skipped" ]; then
-            echo "has-vulnerabilities=${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}" >> $GITHUB_OUTPUT
-          elif [ "${{ steps.skip-snyk.outcome }}" != "skipped" ]; then
-            echo "has-vulnerabilities=${{ steps.skip-snyk.outputs.has-vulnerabilities }}" >> $GITHUB_OUTPUT
-          else
-            echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+          # Determinar si hay vulnerabilidades basándose en qué step se ejecutó
+          HAS_VULN="false"
+          
+          if [ "${{ steps.check-vulnerabilities.outcome }}" = "success" ]; then
+            # Snyk se ejecutó, usar su resultado
+            HAS_VULN="${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}"
+          elif [ "${{ steps.check-vulnerabilities.outcome }}" = "failure" ]; then
+            # Snyk falló por vulnerabilidades críticas
+            HAS_VULN="true"
           fi
+          # Si Snyk fue omitido (skip-snyk se ejecutó), HAS_VULN queda en "false"
+          
+          echo "has-vulnerabilities=${HAS_VULN}" >> $GITHUB_OUTPUT
+          echo "🔍 Resultado final de vulnerabilidades: ${HAS_VULN}"
 
       - name: Resumen de imagen compilada
         run: |
