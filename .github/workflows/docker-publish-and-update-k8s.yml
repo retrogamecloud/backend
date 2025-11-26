@@ -32,6 +32,8 @@ env:
   DOCKERHUB_ORG: retrogamehub
   K8S_REPO: retrogamecloud/kubernetes
   K8S_MANIFEST_FILE: 02-backend.yaml
+  ARGOCD_REPO: retrogamecloud/kubernetes
+  ARGOCD_MANIFEST_FILE: argocd/backend/deployment.yaml
 
 permissions:
   contents: read
