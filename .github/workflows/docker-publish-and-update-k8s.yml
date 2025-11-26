@@ -547,9 +547,16 @@ jobs:
           if git diff --staged --quiet; then
             echo "No hay cambios en el manifiesto"
           else
-            # Crear rama para el PR
-            git checkout -b "${BRANCH_NAME}"
-            
+            # Reutilizar la rama creada por el job previo
+            git fetch origin "${BRANCH_NAME}" || true
+            if git ls-remote --exit-code origin "${BRANCH_NAME}" >/dev/null 2>&1; then
+              git checkout "${BRANCH_NAME}"
+              git pull origin "${BRANCH_NAME}" || true
+            else
+              echo "⚠️ La rama '${BRANCH_NAME}' no existe en remoto. No se creará aquí. Saliendo sin crear PR."
+              exit 0
+            fi
+
             git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
                        -m "Commit origen: ${{ github.sha }}" \
@@ -557,15 +564,7 @@ jobs:
             
             git push origin "${BRANCH_NAME}"
             
-            # Crear PR usando GitHub CLI
-            gh pr create \
-              --repo ${{ env.K8S_REPO }} \
-              --base main \
-              --head "${BRANCH_NAME}" \
-              --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, Commit: ${{ github.sha }}"
-            
-            echo "✅ PR creado en el repositorio de Kubernetes"
+            echo "✅ Cambios empujados a la rama '${BRANCH_NAME}' en K8S"
           fi
         env:
           GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
@@ -631,9 +630,16 @@ jobs:
           if git diff --staged --quiet; then
             echo "No hay cambios en el manifiesto"
           else
-            # Crear rama para el PR
-            git checkout -b "${BRANCH_NAME}"
-            
+            # Reutilizar la rama creada por el job previo
+            git fetch origin "${BRANCH_NAME}" || true
+            if git ls-remote --exit-code origin "${BRANCH_NAME}" >/dev/null 2>&1; then
+              git checkout "${BRANCH_NAME}"
+              git pull origin "${BRANCH_NAME}" || true
+            else
+              echo "⚠️ La rama '${BRANCH_NAME}' no existe en remoto. No se creará aquí. Saliendo sin crear PR."
+              exit 0
+            fi
+
             git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
                        -m "Commit origen: ${{ github.sha }}" \
@@ -641,15 +647,7 @@ jobs:
             
             git push origin "${BRANCH_NAME}"
             
-            # Crear PR usando GitHub CLI
-            gh pr create \
-              --repo ${{ env.ARGOCD_REPO }} \
-              --base main \
-              --head "${BRANCH_NAME}" \
-              --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, Commit: ${{ github.sha }}"
-            
-            echo "✅ PR creado en el repositorio de Kubernetes (ArgoCD)"
+            echo "✅ Cambios empujados a la rama '${BRANCH_NAME}' en ArgoCD"
           fi
         env:
           GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
@@ -663,3 +661,58 @@ jobs:
           echo "- **Tag de imagen**: ${{ needs.create-update-branch.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.ARGOCD_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repositorio**: ${{ env.ARGOCD_REPO }}" >> $GITHUB_STEP_SUMMARY
+
+## JOB ÚNICO PARA CREAR LA PR CON AMBOS CAMBIOS ##
+  create-update-pr:
+    needs: [create-update-branch, update-kubernetes-manifest, update-argocd-manifest]
+    if: |
+      always() &&
+      github.event_name != 'pull_request' &&
+      needs.update-kubernetes-manifest.result == 'success' &&
+      needs.update-argocd-manifest.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Clonar repositorio de Kubernetes
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.K8S_REPO }}
+          token: ${{ secrets.K8S_UPDATE_TOKEN }}
+          ref: main
+      - name: Crear PR única con ambos cambios
+        run: |
+          SERVICE="${{ needs.create-update-branch.outputs.service }}"
+          IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
+          VERSION="${{ needs.create-update-branch.outputs.version }}"
+          BRANCH_NAME="${{ needs.create-update-branch.outputs.branch_name }}"
+
+          # Si ya existe PR para la rama, no crear otra
+          PR_URL=""
+          if gh pr view "${BRANCH_NAME}" --repo ${{ env.K8S_REPO }} --json url -q .url >/dev/null 2>&1; then
+            PR_URL=$(gh pr view "${BRANCH_NAME}" --repo ${{ env.K8S_REPO }} --json url -q .url)
+            echo "ℹ️ PR ya existe para '${BRANCH_NAME}'."
+          else
+            gh pr create \
+              --repo ${{ env.K8S_REPO }} \
+              --base main \
+              --head "${BRANCH_NAME}" \
+              --title "chore(${SERVICE}): Actualizar manifiestos a ${IMAGE_TAG}" \
+              --body "Actualizacion automatica de ${SERVICE}:\n\n- Kubernetes: ${{ env.K8S_MANIFEST_FILE }}\n- ArgoCD: ${{ env.ARGOCD_MANIFEST_FILE }}\n\nVersion: ${VERSION}\nTag: ${IMAGE_TAG}\nCommit: ${{ github.sha }}"
+            echo "✅ PR creada con ambos cambios"
+            PR_URL=$(gh pr view "${BRANCH_NAME}" --repo ${{ env.K8S_REPO }} --json url -q .url)
+          fi
+
+          echo "## 📥 Pull Request de actualización" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Rama**: ${BRANCH_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Servicio**: ${SERVICE}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versión**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$PR_URL" ]; then
+            echo "- **PR**: ${PR_URL}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **PR**: No disponible" >> $GITHUB_STEP_SUMMARY
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
