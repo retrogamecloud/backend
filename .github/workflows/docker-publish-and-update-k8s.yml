@@ -329,6 +329,7 @@ jobs:
       - name: Ejecutar Snyk para escanear vulnerabilidades en imagen local
         id: snyk-scan
         uses: snyk/actions/docker@master
+        if: github.event.repository.private == false
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
@@ -337,7 +338,7 @@ jobs:
           args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --json-file-output=snyk-results.json --platform=linux/amd64
 
       - name: Mostrar resultados de Snyk (si existen)
-        if: always()
+        if: github.event.repository.private == false
         run: |
           if [ -f "snyk-results.json" ]; then
             echo "## 🔍 Resultados del escaneo Snyk" >> $GITHUB_STEP_SUMMARY
@@ -350,7 +351,7 @@ jobs:
 
       - name: Verificar si se generó el archivo SARIF
         id: check-sarif
-        if: always()
+        if: github.event.repository.private == false
         run: |
           if [ -f "snyk-results.sarif" ]; then
             echo "sarif-exists=true" >> $GITHUB_OUTPUT
@@ -362,13 +363,13 @@ jobs:
 
       - name: Subir resultados de Snyk a GitHub Security
         uses: github/codeql-action/upload-sarif@v4
-        if: steps.check-sarif.outputs.sarif-exists == 'true'
+        if: github.event.repository.private == false && steps.check-sarif.outputs.sarif-exists == 'true'
         with:
           sarif_file: 'snyk-results.sarif'
 
       - name: Verificar vulnerabilidades críticas
         id: check-vulnerabilities
-        if: always()
+        if: github.event.repository.private == false
         run: |
           if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
             echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
@@ -394,6 +395,11 @@ jobs:
               echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
             fi
           fi
+
+      - name: Snyk omitido por repo privado
+        if: github.event.repository.private == true
+        run: |
+          echo "ℹ️ Snyk omitido: el repositorio no es público." >> $GITHUB_STEP_SUMMARY
 
       - name: Resumen de imagen compilada
         run: |
