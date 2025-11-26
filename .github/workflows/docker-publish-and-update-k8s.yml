@@ -418,6 +418,9 @@ jobs:
 ## JOB PARA PUBLICAR LA IMAGEN A DOCKER HUB ##
   push:
     needs: build
+    if: |
+      github.event_name != 'pull_request' &&
+      needs.build.outputs.has-vulnerabilities != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -480,6 +483,7 @@ jobs:
 ## JOB PARA ACTUALIZAR EL MANIFIESTO DE KUBERNETES Y CREAR UNA PR ##
   create-update-branch:
     needs: [build, push]
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -502,16 +506,19 @@ jobs:
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+      - name: Clonar repositorio de Kubernetes
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.K8S_REPO }}
+          token: ${{ secrets.K8S_UPDATE_TOKEN }}
+          ref: main
+
       - name: Crear rama en repositorio Kubernetes
         run: |
           BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
 
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-
-          # Clonar el repositorio de Kubernetes
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/${{ env.K8S_REPO }}.git" k8s-repo
-          cd k8s-repo
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
 
           # Verificar si la rama ya existe en remoto
           if git ls-remote --exit-code origin "${BRANCH_NAME}" >/dev/null 2>&1; then
