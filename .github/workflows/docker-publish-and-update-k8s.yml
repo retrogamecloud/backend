@@ -425,6 +425,125 @@ jobs:
           echo "- **SHA**: ${{ steps.version.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Imagen**: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
 
+## JOB PARA GENERAR CHANGELOG AUTOMÁTICO ##
+  generate-changelog:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generar changelog
+        id: changelog
+        run: |
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          VERSION="${{ needs.build.outputs.version }}"
+          
+          # Obtener el tag anterior (si existe)
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "📝 Primera versión, generando changelog completo..."
+            COMMIT_RANGE="HEAD"
+          else
+            echo "📝 Generando changelog desde ${PREVIOUS_TAG}..."
+            COMMIT_RANGE="${PREVIOUS_TAG}..HEAD"
+          fi
+          
+          # Crear o actualizar CHANGELOG.md
+          CHANGELOG_FILE="CHANGELOG.md"
+          TEMP_FILE="CHANGELOG.tmp"
+          
+          # Generar nueva entrada
+          echo "# Changelog" > "$TEMP_FILE"
+          echo "" >> "$TEMP_FILE"
+          echo "Todas las versiones notables de este proyecto se documentan aquí." >> "$TEMP_FILE"
+          echo "" >> "$TEMP_FILE"
+          echo "## [${VERSION}] - $(date +'%Y-%m-%d')" >> "$TEMP_FILE"
+          echo "" >> "$TEMP_FILE"
+          
+          # Categorizar commits por tipo (Conventional Commits)
+          FEATURES=$(git log ${COMMIT_RANGE} --pretty=format:"- %s (%h)" --no-merges | grep -i "^- feat" || echo "")
+          FIXES=$(git log ${COMMIT_RANGE} --pretty=format:"- %s (%h)" --no-merges | grep -i "^- fix" || echo "")
+          CHORES=$(git log ${COMMIT_RANGE} --pretty=format:"- %s (%h)" --no-merges | grep -i "^- chore" || echo "")
+          DOCS=$(git log ${COMMIT_RANGE} --pretty=format:"- %s (%h)" --no-merges | grep -i "^- docs" || echo "")
+          OTHER=$(git log ${COMMIT_RANGE} --pretty=format:"- %s (%h)" --no-merges | grep -viE "^- (feat|fix|chore|docs)" || echo "")
+          
+          # Añadir secciones al changelog
+          if [ -n "$FEATURES" ]; then
+            echo "### ✨ Nuevas Funcionalidades" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+            echo "$FEATURES" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+          fi
+          
+          if [ -n "$FIXES" ]; then
+            echo "### 🐛 Correcciones de Bugs" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+            echo "$FIXES" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+          fi
+          
+          if [ -n "$CHORES" ]; then
+            echo "### 🔧 Mantenimiento" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+            echo "$CHORES" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+          fi
+          
+          if [ -n "$DOCS" ]; then
+            echo "### 📚 Documentación" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+            echo "$DOCS" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+          fi
+          
+          if [ -n "$OTHER" ]; then
+            echo "### 🔄 Otros Cambios" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+            echo "$OTHER" >> "$TEMP_FILE"
+            echo "" >> "$TEMP_FILE"
+          fi
+          
+          # Si existe changelog anterior, añadirlo
+          if [ -f "$CHANGELOG_FILE" ]; then
+            # Saltar el header del changelog viejo y añadir el contenido
+            tail -n +4 "$CHANGELOG_FILE" >> "$TEMP_FILE" 2>/dev/null || true
+          fi
+          
+          # Reemplazar changelog
+          mv "$TEMP_FILE" "$CHANGELOG_FILE"
+          
+          echo "✅ Changelog generado para versión ${VERSION}"
+          
+          # Mostrar resumen
+          echo "## 📝 Changelog Generado" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`markdown" >> $GITHUB_STEP_SUMMARY
+          head -50 "$CHANGELOG_FILE" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Commit y push del changelog
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          
+          if git diff --quiet CHANGELOG.md; then
+            echo "ℹ️ No hay cambios en CHANGELOG.md"
+          else
+            git add CHANGELOG.md
+            git commit -m "docs: Actualizar CHANGELOG para ${{ needs.build.outputs.version }} [skip ci]"
+            git push origin ${{ github.ref_name }}
+            echo "✅ CHANGELOG.md actualizado y publicado"
+          fi
+
 ## JOB PARA PUBLICAR LA IMAGEN A DOCKER HUB ##
   push:
     needs: build
@@ -780,7 +899,7 @@ jobs:
               --base main \
               --head "${BRANCH_NAME}" \
               --title "chore(${SERVICE}): Actualizar manifiestos a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de ${SERVICE}:\n\n- Kubernetes: ${{ env.K8S_MANIFEST_FILE }}\n- ArgoCD: ${{ env.ARGOCD_MANIFEST_FILE }}\n\nVersion: ${VERSION}\nTag: ${IMAGE_TAG}\nCommit: ${{ github.sha }}"
+              --body "Actualizacion automatica de ${SERVICE}: Kubernetes: ${{ env.K8S_MANIFEST_FILE }} || ArgoCD: ${{ env.ARGOCD_MANIFEST_FILE }} || Version: ${VERSION} || Tag: ${IMAGE_TAG} || Commit: ${{ github.sha }}"
             echo "✅ PR creada con ambos cambios"
             PR_URL=$(gh pr view "${BRANCH_NAME}" --repo ${{ env.K8S_REPO }} --json url -q .url)
           fi
@@ -801,7 +920,7 @@ jobs:
 
 ## JOB PARA NOTIFICAR FALLOS EN SLACK ##
   notify-slack:
-    needs: [eslint-prettier, check-changes, tests, build, push, create-update-branch, update-kubernetes-manifest, update-argocd-manifest, create-update-pr]
+    needs: [eslint-prettier, check-changes, tests, build, generate-changelog, push, create-update-branch, update-kubernetes-manifest, update-argocd-manifest, create-update-pr]
     if: >-
       always() &&
       (
