@@ -865,7 +865,7 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Jobs fallidos:*\n${{ needs.tests.result == 'failure' && '• Tests\n' || '' }}${{ needs.build.result == 'failure' && '• Build\n' || '' }}${{ needs.push.result == 'failure' && '• Push\n' || '' }}${{ needs.create-update-branch.result == 'failure' && '• Create Update Branch\n' || '' }}${{ needs.update-kubernetes-manifest.result == 'failure' && '• Update K8S Manifest\n' || '' }}${{ needs.update-argocd-manifest.result == 'failure' && '• Update ArgoCD Manifest\n' || '' }}${{ needs.create-update-pr.result == 'failure' && '• Create PR\n' || '' }}"
+                    "text": "*Jobs fallidos:*\n${{ needs.tests.result == 'failure' && '• Tests\n' || '' }}${{ needs.build.result == 'failure' && '• Build\n' || '' }}${{ needs.push.result == 'failure' && '• Push\n' || '' }}${{ needs.create-update-branch.result == 'failure' && '• Create Update Branch\n' || '' }}${{ needs.update-kubernetes-manifest.result == 'failure' && '• Update Kubernetes Manifest\n' || '' }}${{ needs.update-argocd-manifest.result == 'failure' && '• Update ArgoCD Manifest\n' || '' }}${{ needs.create-update-pr.result == 'failure' && '• Create PR\n' || '' }}"
                   }
                 },
                 {
