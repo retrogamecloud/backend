@@ -602,7 +602,7 @@ jobs:
               exit 1
             fi
 
-            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
+            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [no-test]" \
                        -m "Version: ${VERSION}" \
                        -m "Commit origen: ${{ github.sha }}" \
                        -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
@@ -685,7 +685,7 @@ jobs:
               exit 1
             fi
 
-            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
+            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [no-test]" \
                        -m "Version: ${VERSION}" \
                        -m "Commit origen: ${{ github.sha }}" \
                        -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
