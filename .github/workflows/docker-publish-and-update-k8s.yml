@@ -34,6 +34,7 @@ env:
   K8S_MANIFEST_FILE: 02-backend.yaml
   ARGOCD_REPO: retrogamecloud/kubernetes
   ARGOCD_MANIFEST_FILE: argocd/backend/deployment.yaml
+  ENABLE_SNYK: false # Evitar que se consuma "Private manifest"
 
 permissions:
   contents: read
@@ -329,7 +330,7 @@ jobs:
       - name: Ejecutar Snyk para escanear vulnerabilidades en imagen local
         id: snyk-scan
         uses: snyk/actions/docker@master
-        if: github.event.repository.private == false
+        if: github.event.repository.private == false && env.ENABLE_SNYK == 'true'
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
@@ -338,7 +339,7 @@ jobs:
           args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --json-file-output=snyk-results.json --platform=linux/amd64
 
       - name: Mostrar resultados de Snyk (si existen)
-        if: github.event.repository.private == false
+        if: github.event.repository.private == false && env.ENABLE_SNYK == 'true'
         run: |
           if [ -f "snyk-results.json" ]; then
             echo "## 🔍 Resultados del escaneo Snyk" >> $GITHUB_STEP_SUMMARY
@@ -351,7 +352,7 @@ jobs:
 
       - name: Verificar si se generó el archivo SARIF
         id: check-sarif
-        if: github.event.repository.private == false
+        if: github.event.repository.private == false && env.ENABLE_SNYK == 'true'
         run: |
           if [ -f "snyk-results.sarif" ]; then
             echo "sarif-exists=true" >> $GITHUB_OUTPUT
@@ -363,13 +364,13 @@ jobs:
 
       - name: Subir resultados de Snyk a GitHub Security
         uses: github/codeql-action/upload-sarif@v4
-        if: github.event.repository.private == false && steps.check-sarif.outputs.sarif-exists == 'true'
+        if: github.event.repository.private == false && env.ENABLE_SNYK == 'true' && steps.check-sarif.outputs.sarif-exists == 'true'
         with:
           sarif_file: 'snyk-results.sarif'
 
       - name: Verificar vulnerabilidades críticas
         id: check-vulnerabilities
-        if: github.event.repository.private == false
+        if: github.event.repository.private == false && env.ENABLE_SNYK == 'true'
         run: |
           if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
             echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
@@ -396,10 +397,14 @@ jobs:
             fi
           fi
 
-      - name: Snyk omitido por repo privado
-        if: github.event.repository.private == true
+      - name: Omitir Snyk porque el repositorio es privado o Snyk está deshabilitado
+        if: github.event.repository.private == true || env.ENABLE_SNYK == 'false'
         run: |
-          echo "ℹ️ Snyk omitido: el repositorio no es público." >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.ENABLE_SNYK }}" = "false" ]; then
+            echo "ℹ️ Snyk omitido: deshabilitado mediante ENABLE_SNYK=false." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ Snyk omitido: el repositorio no es público." >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Resumen de imagen compilada
         run: |
@@ -497,6 +502,29 @@ jobs:
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+      - name: Crear rama en repositorio Kubernetes
+        run: |
+          BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
+
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+
+          # Clonar el repositorio de Kubernetes
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${{ env.K8S_REPO }}.git" k8s-repo
+          cd k8s-repo
+
+          # Verificar si la rama ya existe en remoto
+          if git ls-remote --exit-code origin "${BRANCH_NAME}" >/dev/null 2>&1; then
+            echo "ℹ️ La rama '${BRANCH_NAME}' ya existe en remoto."
+          else
+            # Crear la rama desde main
+            git checkout -b "${BRANCH_NAME}"
+            git push -u origin "${BRANCH_NAME}"
+            echo "✅ Rama '${BRANCH_NAME}' creada en remoto."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
+
   update-kubernetes-manifest:
     needs: [create-update-branch]
     if: |
@@ -553,8 +581,8 @@ jobs:
               git checkout "${BRANCH_NAME}"
               git pull origin "${BRANCH_NAME}" || true
             else
-              echo "⚠️ La rama '${BRANCH_NAME}' no existe en remoto. No se creará aquí. Saliendo sin crear PR."
-              exit 0
+              echo "❌ ERROR: La rama '${BRANCH_NAME}' no existe en remoto. Debería haber sido creada por create-update-branch."
+              exit 1
             fi
 
             git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
@@ -636,8 +664,8 @@ jobs:
               git checkout "${BRANCH_NAME}"
               git pull origin "${BRANCH_NAME}" || true
             else
-              echo "⚠️ La rama '${BRANCH_NAME}' no existe en remoto. No se creará aquí. Saliendo sin crear PR."
-              exit 0
+              echo "❌ ERROR: La rama '${BRANCH_NAME}' no existe en remoto. Debería haber sido creada por create-update-branch."
+              exit 1
             fi
 
             git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
@@ -686,6 +714,24 @@ jobs:
           IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
           VERSION="${{ needs.create-update-branch.outputs.version }}"
           BRANCH_NAME="${{ needs.create-update-branch.outputs.branch_name }}"
+
+          # Asegurar que la rama remota existe y tiene cambios respecto a main
+          git fetch origin "${BRANCH_NAME}" || true
+          if git ls-remote --exit-code origin "${BRANCH_NAME}" >/dev/null 2>&1; then
+            git fetch origin main
+            # Contar commits: izquierda (rama), derecha (main)
+            COUNTS=$(git rev-list --left-right --count origin/${BRANCH_NAME}...origin/main 2>/dev/null || echo "0	0")
+            LEFT_COMMITS=$(echo "$COUNTS" | awk '{print $1}')
+            RIGHT_COMMITS=$(echo "$COUNTS" | awk '{print $2}')
+            echo "🔢 Commits - rama:${LEFT_COMMITS} main:${RIGHT_COMMITS}"
+            if [ "$LEFT_COMMITS" -eq 0 ]; then
+              echo "ℹ️ La rama '${BRANCH_NAME}' no tiene cambios respecto a 'main'. No se creará PR."
+              exit 0
+            fi
+          else
+            echo "ℹ️ La rama remota '${BRANCH_NAME}' no existe. No se creará PR."
+            exit 0
+          fi
 
           # Si ya existe PR para la rama, no crear otra
           PR_URL=""
