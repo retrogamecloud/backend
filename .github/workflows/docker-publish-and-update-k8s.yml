@@ -560,16 +560,32 @@ jobs:
 
       - name: Commit y push del changelog
         run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
+          
+          # Determinar la rama destino
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TARGET_BRANCH="main"
+            echo "🏷️ Ejecutando desde tag, pusheando a rama: ${TARGET_BRANCH}"
+          else
+            TARGET_BRANCH="${{ github.ref_name }}"
+            echo "🌿 Ejecutando desde rama: ${TARGET_BRANCH}"
+          fi
+          
+          # Asegurarse de estar en la rama correcta
+          git fetch origin "${TARGET_BRANCH}"
+          git checkout "${TARGET_BRANCH}"
+          git pull origin "${TARGET_BRANCH}"
           
           if git diff --quiet CHANGELOG.md; then
             echo "ℹ️ No hay cambios en CHANGELOG.md"
           else
             git add CHANGELOG.md
-            git commit -m "docs: Actualizar CHANGELOG para ${{ needs.build.outputs.version }} [skip ci]"
-            git push origin ${{ github.ref_name }}
-            echo "✅ CHANGELOG.md actualizado y publicado"
+            git commit -m "docs: Actualizar CHANGELOG para ${VERSION} [skip ci]"
+            git push origin "${TARGET_BRANCH}"
+            echo "✅ CHANGELOG.md actualizado y publicado en ${TARGET_BRANCH}"
           fi
 
 ## JOB PARA PUBLICAR LA IMAGEN A DOCKER HUB ##
