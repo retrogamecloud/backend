@@ -145,36 +145,40 @@ jobs:
             echo "⏭️ Mensaje del commit indica saltar tests: [no-test] o [skip-tests]"
             echo "🔍 DEBUG: should-test establecido a: false"
             cat $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Continuar con detección de archivos modificados
+          # Continuar con detección de archivos modificados
+          
+          # En pull requests, comparar con la rama base
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || echo "")
           else
-            # En pull requests, comparar con la rama base
-            if [ "${{ github.event_name }}" = "pull_request" ]; then
-              FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || echo "")
-            else
-              # En push, comparar con el commit anterior
-              FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git ls-files)
-            fi
+            # En push, comparar con el commit anterior
+            FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git ls-files)
+          fi
+          
+          echo "📁 Archivos modificados:"
+          echo "$FILES"
+          echo ""
+          
+          # Si no hay archivos, saltar tests
+          if [ -z "$FILES" ]; then
+            echo "should-test=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Sin cambios detectados, saltando tests"
+          else
+            # Verificar si TODOS los archivos son documentación (ahora workflows NO se excluyen)
+            NON_DOC_FILES=$(echo "$FILES" | grep -vE '\.(md|txt)$|^docs/|^\.gitignore$|^LICENSE$|^\.prettierrc$|^\.prettierignore$|^\.dockerignore$|^\.env\.example$' || true)
             
-            echo "📁 Archivos modificados:"
-            echo "$FILES"
-            echo ""
-            
-            # Si no hay archivos, saltar tests
-            if [ -z "$FILES" ]; then
+            if [ -z "$NON_DOC_FILES" ]; then
               echo "should-test=false" >> $GITHUB_OUTPUT
-              echo "⏭️ Sin cambios detectados, saltando tests"
+              echo "⏭️ Solo cambios en documentación/configuración, saltando tests"
             else
-              # Verificar si TODOS los archivos son documentación (ahora workflows NO se excluyen)
-              NON_DOC_FILES=$(echo "$FILES" | grep -vE '\.(md|txt)$|^docs/|^\.gitignore$|^LICENSE$|^\.prettierrc$|^\.prettierignore$|^\.dockerignore$|^\.env\.example$' || true)
-              
-              if [ -z "$NON_DOC_FILES" ]; then
-                echo "should-test=false" >> $GITHUB_OUTPUT
-                echo "⏭️ Solo cambios en documentación/configuración, saltando tests"
-              else
-                echo "should-test=true" >> $GITHUB_OUTPUT
-                echo "✅ Cambios en código detectados, ejecutando tests"
-                echo "Archivos de código modificados:"
-                echo "$NON_DOC_FILES"
-              fi
+              echo "should-test=true" >> $GITHUB_OUTPUT
+              echo "✅ Cambios en código detectados, ejecutando tests"
+              echo "Archivos de código modificados:"
+              echo "$NON_DOC_FILES"
             fi
           fi
 
@@ -410,10 +414,10 @@ jobs:
       - name: Omitir Snyk porque el repositorio es privado o Snyk está deshabilitado
         if: github.event.repository.private == true || env.ENABLE_SNYK == 'false'
         run: |
-          if [ "${{ env.ENABLE_SNYK }}" = "false" ]; then
-            echo "ℹ️ Snyk omitido: deshabilitado mediante ENABLE_SNYK=false." >> $GITHUB_STEP_SUMMARY
-          else
+          if [ "${{ github.event.repository.private }}" = "true" ]; then
             echo "ℹ️ Snyk omitido: el repositorio no es público." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ Snyk omitido: deshabilitado mediante ENABLE_SNYK=false." >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Resumen de imagen compilada
