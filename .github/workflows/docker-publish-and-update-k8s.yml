@@ -32,8 +32,6 @@ env:
   DOCKERHUB_ORG: retrogamehub
   K8S_REPO: retrogamecloud/kubernetes
   K8S_MANIFEST_FILE: 02-backend.yaml
-  ARGOCD_REPO: retrogamecloud/kubernetes
-  ARGOCD_MANIFEST_FILE: argocd/backend/deployment.yaml
 
 permissions:
   contents: read
@@ -248,7 +246,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       image_tag: ${{ steps.version.outputs.image_tag }}
       short_sha: ${{ steps.version.outputs.short_sha }}
-      # has-vulnerabilities: ${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}
+      has-vulnerabilities: ${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}
 
     steps:
       - name: Clonar repositorio
@@ -326,85 +324,83 @@ jobs:
             exit 1
           fi
 
-      # - name: Ejecutar Snyk para escanear vulnerabilidades en imagen local
-      #   id: snyk-scan
-      #   uses: snyk/actions/docker@master
-      #   continue-on-error: true
-      #   env:
-      #     SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      #   with:
-      #     image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}'
-      #     args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --json-file-output=snyk-results.json --platform=linux/amd64
+      - name: Ejecutar Snyk para escanear vulnerabilidades en imagen local
+        id: snyk-scan
+        uses: snyk/actions/docker@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: '${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}'
+          args: --severity-threshold=high --sarif-file-output=snyk-results.sarif --json-file-output=snyk-results.json --platform=linux/amd64
 
-      # - name: Mostrar resultados de Snyk (si existen)
-      #   if: always()
-      #   run: |
-      #     if [ -f "snyk-results.json" ]; then
-      #       echo "## 🔍 Resultados del escaneo Snyk" >> $GITHUB_STEP_SUMMARY
-      #       echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
-      #       head -100 snyk-results.json >> $GITHUB_STEP_SUMMARY || true
-      #       echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-      #     else
-      #       echo "⚠️ No se generó archivo JSON de resultados" >> $GITHUB_STEP_SUMMARY
-      #     fi
+      - name: Mostrar resultados de Snyk (si existen)
+        if: always()
+        run: |
+          if [ -f "snyk-results.json" ]; then
+            echo "## 🔍 Resultados del escaneo Snyk" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            head -100 snyk-results.json >> $GITHUB_STEP_SUMMARY || true
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No se generó archivo JSON de resultados" >> $GITHUB_STEP_SUMMARY
+          fi
 
-      # - name: Verificar si se generó el archivo SARIF
-      #   id: check-sarif
-      #   if: always()
-      #   run: |
-      #     if [ -f "snyk-results.sarif" ]; then
-      #       echo "sarif-exists=true" >> $GITHUB_OUTPUT
-      #       echo "✅ Archivo SARIF generado"
-      #     else
-      #       echo "sarif-exists=false" >> $GITHUB_OUTPUT
-      #       echo "⚠️ No se generó archivo SARIF"
-      #     fi
+      - name: Verificar si se generó el archivo SARIF
+        id: check-sarif
+        if: always()
+        run: |
+          if [ -f "snyk-results.sarif" ]; then
+            echo "sarif-exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Archivo SARIF generado"
+          else
+            echo "sarif-exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No se generó archivo SARIF"
+          fi
 
-      # - name: Subir resultados de Snyk a GitHub Security
-      #   uses: github/codeql-action/upload-sarif@v4
-      #   if: steps.check-sarif.outputs.sarif-exists == 'true'
-      #   with:
-      #     sarif_file: 'snyk-results.sarif'
+      - name: Subir resultados de Snyk a GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: steps.check-sarif.outputs.sarif-exists == 'true'
+        with:
+          sarif_file: 'snyk-results.sarif'
 
-      # - name: Verificar vulnerabilidades críticas
-      #   id: check-vulnerabilities
-      #   if: always()
-      #   run: |
-      #     if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
-      #       echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
-      #       echo "⚠️ SNYK_TOKEN no configurado, saltando verificación" >> $GITHUB_STEP_SUMMARY
-      #     elif [ ! -f "snyk-results.json" ]; then
-      #       echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
-      #       echo "⚠️ No se generó archivo de resultados JSON, saltando verificación" >> $GITHUB_STEP_SUMMARY
-      #     else
-      #       # Contar vulnerabilidades de severidad high o critical en el JSON
-      #       VULN_COUNT=$(cat snyk-results.json | jq -r '[.vulnerabilities[]? | select(.severity == "high" or .severity == "critical")] | length' 2>/dev/null || echo "0")
-      #       
-      #       echo "🔍 Vulnerabilidades críticas/altas encontradas: ${VULN_COUNT}"
-      #       
-      #       if [ "${VULN_COUNT}" -gt 0 ]; then
-      #         echo "::error title=Vulnerabilidades Críticas::Se encontraron ${VULN_COUNT} vulnerabilidades de seguridad críticas/altas en la imagen."
-      #         echo "❌ **VULNERABILIDADES CRÍTICAS DETECTADAS: ${VULN_COUNT}**" >> $GITHUB_STEP_SUMMARY
-      #         echo "" >> $GITHUB_STEP_SUMMARY
-      #         echo "Revisa el tab 'Security' para más detalles." >> $GITHUB_STEP_SUMMARY
-      #         echo "has-vulnerabilities=true" >> $GITHUB_OUTPUT
-      #         exit 1
-      #       else
-      #         echo "✅ No se encontraron vulnerabilidades críticas" >> $GITHUB_STEP_SUMMARY
-      #         echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
-      #       fi
-      #     fi
+      - name: Verificar vulnerabilidades críticas
+        id: check-vulnerabilities
+        if: always()
+        run: |
+          if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
+            echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+            echo "⚠️ SNYK_TOKEN no configurado, saltando verificación" >> $GITHUB_STEP_SUMMARY
+          elif [ ! -f "snyk-results.json" ]; then
+            echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No se generó archivo de resultados JSON, saltando verificación" >> $GITHUB_STEP_SUMMARY
+          else
+            # Contar vulnerabilidades de severidad high o critical en el JSON
+            VULN_COUNT=$(cat snyk-results.json | jq -r '[.vulnerabilities[]? | select(.severity == "high" or .severity == "critical")] | length' 2>/dev/null || echo "0")
+            
+            echo "🔍 Vulnerabilidades críticas/altas encontradas: ${VULN_COUNT}"
+            
+            if [ "${VULN_COUNT}" -gt 0 ]; then
+              echo "::error title=Vulnerabilidades Críticas::Se encontraron ${VULN_COUNT} vulnerabilidades de seguridad críticas/altas en la imagen."
+              echo "❌ **VULNERABILIDADES CRÍTICAS DETECTADAS: ${VULN_COUNT}**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Revisa el tab 'Security' para más detalles." >> $GITHUB_STEP_SUMMARY
+              echo "has-vulnerabilities=true" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "✅ No se encontraron vulnerabilidades críticas" >> $GITHUB_STEP_SUMMARY
+              echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+            fi
+          fi
 
       - name: Resumen de imagen compilada
         run: |
-          echo "## 🐳 Build Completado" >> $GITHUB_STEP_SUMMARY
+          echo "## 🐳 Build y Security Scan Completados" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Versión**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag**: ${{ steps.version.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **SHA**: ${{ steps.version.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Imagen**: ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}:${{ steps.version.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "ℹ️ **Nota**: Escaneo de seguridad Snyk deshabilitado temporalmente." >> $GITHUB_STEP_SUMMARY
 
 ## JOB PARA PUBLICAR LA IMAGEN A DOCKER HUB ##
   push:
@@ -487,28 +483,17 @@ jobs:
           token: ${{ secrets.K8S_UPDATE_TOKEN }}
           ref: main
 
-      - name: Obtener información de la imagen desde el job anterior
-        id: image_info
-        run: |
-          # Reutilizar el SHA del commit actual sin clonar de nuevo
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          COMMIT_COUNT=${{ github.run_number }}
-          VERSION="v1.0.${COMMIT_COUNT}"
-          
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "image_tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
-
       - name: Actualizar manifiesto de Kubernetes
         run: |
-          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
-          VERSION="${{ steps.image_info.outputs.version }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          VERSION="${{ needs.build.outputs.version }}"
+          SERVICE="${{ github.event.repository.name }}"
           
           # Actualizar la imagen en el manifiesto usando sed
-          sed -i "s|image: retrogamehub/backend:.*|image: retrogamehub/backend:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${IMAGE_TAG}|g" ${{ env.K8S_MANIFEST_FILE }}
           
           # Actualizar el comentario con la versión
-          sed -i "s|# Imagen del backend desde DockerHub.*|# Imagen del backend desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
+          sed -i "s|# Imagen de ${SERVICE} desde DockerHub.*|# Imagen de ${SERVICE} desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.K8S_MANIFEST_FILE }}
           
           echo "✅ Manifiesto actualizado con imagen: ${IMAGE_TAG}"
 
@@ -519,9 +504,10 @@ jobs:
 
       - name: Crear rama y PR con cambios
         run: |
-          VERSION="${{ steps.image_info.outputs.version }}"
-          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
-          BRANCH_NAME="auto/backend-${IMAGE_TAG}"
+          VERSION="${{ needs.build.outputs.version }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          SERVICE="${{ github.event.repository.name }}"
+          BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
           
           git add ${{ env.K8S_MANIFEST_FILE }}
           
@@ -532,11 +518,11 @@ jobs:
             # Crear rama para el PR
             git checkout -b "${BRANCH_NAME}"
             
-            git commit -m "chore: Actualizar imagen de backend a ${IMAGE_TAG} [skip ci]" \
+            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
-                       -m "SHA: ${{ steps.image_info.outputs.short_sha }}" \
+                       -m "SHA: ${{ needs.build.outputs.short_sha }}" \
                        -m "Commit origen: ${{ github.sha }}" \
-                       -m "Actualizacion automatica desde CI/CD del repositorio backend"
+                       -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
             
             git push origin "${BRANCH_NAME}"
             
@@ -545,8 +531,8 @@ jobs:
               --repo ${{ env.K8S_REPO }} \
               --base main \
               --head "${BRANCH_NAME}" \
-              --title "chore(backend): Actualizar a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de backend - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ steps.image_info.outputs.short_sha }}, Commit: ${{ github.sha }}"
+              --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
+              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ needs.build.outputs.short_sha }}, Commit: ${{ github.sha }}"
             
             echo "✅ PR creado en el repositorio de Kubernetes"
           fi
@@ -555,10 +541,11 @@ jobs:
 
       - name: Resumen
         run: |
-          echo "## Actualizacion de Kubernetes Completada" >> $GITHUB_STEP_SUMMARY
+          echo "## Actualizacion de Kubernetes completada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ steps.image_info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag de imagen**: ${{ steps.image_info.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Servicio**: ${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag de imagen**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.K8S_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repositorio**: ${{ env.K8S_REPO }}" >> $GITHUB_STEP_SUMMARY
 
@@ -581,24 +568,17 @@ jobs:
           token: ${{ secrets.K8S_UPDATE_TOKEN }}
           ref: main
 
-      - name: Obtener información de la imagen
-        id: image_info
+      - name: Actualizar manifiesto de Kubernetes
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          COMMIT_COUNT=${{ github.run_number }}
-          VERSION="v1.0.${COMMIT_COUNT}"
-          
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "image_tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
-
-      - name: Actualizar deployment de ArgoCD
-        run: |
-          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
-          VERSION="${{ steps.image_info.outputs.version }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          VERSION="${{ needs.build.outputs.version }}"
+          SERVICE="${{ github.event.repository.name }}"
           
           # Actualizar la imagen en el deployment de ArgoCD
-          sed -i "s|image: retrogamehub/backend:.*|image: retrogamehub/backend:${IMAGE_TAG}  # Will be updated by CI/CD|g" ${{ env.ARGOCD_MANIFEST_FILE }}
+          sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${IMAGE_TAG}|g" ${{ env.ARGOCD_MANIFEST_FILE }}
+          
+          # Actualizar el comentario con la versión
+          sed -i "s|# Imagen de ${SERVICE} desde DockerHub.*|# Imagen de ${SERVICE} desde DockerHub - ${VERSION} (${IMAGE_TAG})|g" ${{ env.ARGOCD_MANIFEST_FILE }}
           
           echo "✅ Deployment actualizado con imagen: ${IMAGE_TAG}"
 
@@ -609,32 +589,35 @@ jobs:
 
       - name: Crear rama y PR con cambios en ArgoCD
         run: |
-          VERSION="${{ steps.image_info.outputs.version }}"
-          IMAGE_TAG="${{ steps.image_info.outputs.image_tag }}"
-          BRANCH_NAME="auto/argocd-backend-${IMAGE_TAG}"
+          VERSION="${{ needs.build.outputs.version }}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          SERVICE="${{ github.event.repository.name }}"
+          BRANCH_NAME="auto/${SERVICE}-${IMAGE_TAG}"
           
           git add ${{ env.ARGOCD_MANIFEST_FILE }}
           
+          # Solo proceder si hay cambios
           if git diff --staged --quiet; then
-            echo "No hay cambios en el deployment"
+            echo "No hay cambios en el manifiesto"
           else
+            # Crear rama para el PR
             git checkout -b "${BRANCH_NAME}"
             
-            git commit -m "chore(argocd): Actualizar imagen de backend a ${IMAGE_TAG} [skip ci]" \
-                       -m "Archivo: ${{ env.ARGOCD_MANIFEST_FILE }}" \
+            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
                        -m "Version: ${VERSION}" \
-                       -m "SHA: ${{ steps.image_info.outputs.short_sha }}" \
+                       -m "SHA: ${{ needs.build.outputs.short_sha }}" \
                        -m "Commit origen: ${{ github.sha }}" \
-                       -m "Actualizacion automatica desde CI/CD del repositorio backend"
+                       -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
             
             git push origin "${BRANCH_NAME}"
             
+            # Crear PR usando GitHub CLI
             gh pr create \
               --repo ${{ env.ARGOCD_REPO }} \
               --base main \
               --head "${BRANCH_NAME}" \
-              --title "chore(argocd/backend): Actualizar a ${IMAGE_TAG}" \
-              --body "**Archivo actualizado:** \`${{ env.ARGOCD_MANIFEST_FILE }}\`%0A%0AActualizacion automatica de backend:%0A- Version: ${VERSION}%0A- Tag: ${IMAGE_TAG}%0A- SHA: ${{ steps.image_info.outputs.short_sha }}%0A- Commit: ${{ github.sha }}"
+              --title "chore(${SERVICE}): Actualizar a ${IMAGE_TAG}" \
+              --body "Actualizacion automatica de ${SERVICE} - Version: ${VERSION}, Tag: ${IMAGE_TAG}, SHA: ${{ needs.build.outputs.short_sha }}, Commit: ${{ github.sha }}"
             
             echo "✅ PR creado en el repositorio de Kubernetes (ArgoCD)"
           fi
@@ -643,9 +626,10 @@ jobs:
 
       - name: Resumen ArgoCD
         run: |
-          echo "## Actualizacion de ArgoCD Completada" >> $GITHUB_STEP_SUMMARY
+          echo "## Actualizacion de ArgoCD completada" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ steps.image_info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag de imagen**: ${{ steps.image_info.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Servicio**: ${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag de imagen**: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Manifiesto actualizado**: ${{ env.ARGOCD_MANIFEST_FILE }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Repositorio**: ${{ env.ARGOCD_REPO }}" >> $GITHUB_STEP_SUMMARY
