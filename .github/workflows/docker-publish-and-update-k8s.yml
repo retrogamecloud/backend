@@ -783,9 +783,8 @@ jobs:
 ## JOB PARA NOTIFICAR FALLOS EN SLACK ##
   notify-slack:
     needs: [eslint-prettier, check-changes, tests, build, push, create-update-branch, update-kubernetes-manifest, update-argocd-manifest, create-update-pr]
-    if: |
+    if: >-
       always() &&
-      env.ENABLE_SLACK_NOTIFICATIONS == 'true' &&
       (
         needs.tests.result == 'failure' ||
         needs.build.result == 'failure' ||
@@ -798,6 +797,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Enviar notificación a Slack
+        if: env.ENABLE_SLACK_NOTIFICATIONS == 'true'
         uses: slackapi/slack-github-action@v2.0.0
         with:
           webhook-type: incoming-webhook
@@ -864,3 +864,6 @@ jobs:
                 }
               ]
             }
+      - name: Notificaciones deshabilitadas
+        if: env.ENABLE_SLACK_NOTIFICATIONS != 'true'
+        run: echo "Slack deshabilitado (ENABLE_SLACK_NOTIFICATIONS != 'true')"
