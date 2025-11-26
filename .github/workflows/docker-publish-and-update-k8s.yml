@@ -560,6 +560,14 @@ jobs:
           token: ${{ secrets.K8S_UPDATE_TOKEN }}
           ref: main
 
+      - name: Preparar rama de trabajo
+        run: |
+          BRANCH_NAME="${{ needs.create-update-branch.outputs.branch_name }}"
+          git fetch origin "${BRANCH_NAME}" || true
+          git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
       - name: Actualizar manifiesto de Kubernetes
         run: |
           IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
@@ -574,45 +582,48 @@ jobs:
           
           echo "✅ Manifiesto actualizado con imagen: ${IMAGE_TAG}"
 
-      - name: Configurar Git
-        run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-
-      - name: Crear rama y PR con cambios
+      - name: Commit y push de cambios (con rebase si es necesario)
         run: |
           VERSION="${{ needs.create-update-branch.outputs.version }}"
           IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
           SERVICE="${{ needs.create-update-branch.outputs.service }}"
           BRANCH_NAME="${{ needs.create-update-branch.outputs.branch_name }}"
-          
+
           git add ${{ env.K8S_MANIFEST_FILE }}
-          
+
           # Solo proceder si hay cambios
           if git diff --staged --quiet; then
             echo "No hay cambios en el manifiesto"
-          else
-            # Reutilizar la rama creada por el job previo
-            git fetch origin "${BRANCH_NAME}" || true
-            if git ls-remote --exit-code origin "${BRANCH_NAME}" >/dev/null 2>&1; then
-              git checkout "${BRANCH_NAME}"
-              git pull origin "${BRANCH_NAME}" || true
-            else
-              echo "❌ ERROR: La rama '${BRANCH_NAME}' no existe en remoto. Debería haber sido creada por create-update-branch."
-              exit 1
-            fi
-
-            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
-                       -m "Version: ${VERSION}" \
-                       -m "Commit origen: ${{ github.sha }}" \
-                       -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
-            
-            git push origin "${BRANCH_NAME}"
-            
-            echo "✅ Cambios empujados a la rama '${BRANCH_NAME}' en K8S"
+            exit 0
           fi
-        env:
-          GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
+
+          git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
+                     -m "Version: ${VERSION}" \
+                     -m "Commit origen: ${{ github.sha }}" \
+                     -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
+
+          # Intentar push con reintentos y rebase en caso de rechazo
+          ATTEMPTS=0
+          MAX_ATTEMPTS=3
+          until [ $ATTEMPTS -ge $MAX_ATTEMPTS ]
+          do
+            if git push origin "${BRANCH_NAME}"; then
+              echo "✅ Cambios empujados a la rama '${BRANCH_NAME}' en K8S"
+              break
+            fi
+            ATTEMPTS=$((ATTEMPTS+1))
+            echo "⚠️ Push rechazado. Intentando rebase (intento ${ATTEMPTS}/${MAX_ATTEMPTS})..."
+            git fetch origin "${BRANCH_NAME}" || true
+            # Rebase de nuestros commits encima de la rama remota
+            git pull --rebase origin "${BRANCH_NAME}" || {
+              echo "⚠️ Rebase fallido, intentando abortar..."; git rebase --abort || true; 
+            }
+          done
+
+          if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
+            echo "❌ No se pudo empujar los cambios tras ${MAX_ATTEMPTS} intentos."
+            exit 1
+          fi
 
       - name: Resumen
         run: |
@@ -643,6 +654,14 @@ jobs:
           token: ${{ secrets.K8S_UPDATE_TOKEN }}
           ref: main
 
+      - name: Preparar rama de trabajo
+        run: |
+          BRANCH_NAME="${{ needs.create-update-branch.outputs.branch_name }}"
+          git fetch origin "${BRANCH_NAME}" || true
+          git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
       - name: Actualizar manifiesto de Kubernetes
         run: |
           IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
@@ -657,45 +676,45 @@ jobs:
           
           echo "✅ Deployment actualizado con imagen: ${IMAGE_TAG}"
 
-      - name: Configurar Git
-        run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-
-      - name: Crear rama y PR con cambios en ArgoCD
+      - name: Commit y push de cambios (con rebase si es necesario)
         run: |
           VERSION="${{ needs.create-update-branch.outputs.version }}"
           IMAGE_TAG="${{ needs.create-update-branch.outputs.image_tag }}"
           SERVICE="${{ needs.create-update-branch.outputs.service }}"
           BRANCH_NAME="${{ needs.create-update-branch.outputs.branch_name }}"
-          
+
           git add ${{ env.ARGOCD_MANIFEST_FILE }}
-          
+
           # Solo proceder si hay cambios
           if git diff --staged --quiet; then
             echo "No hay cambios en el manifiesto"
-          else
-            # Reutilizar la rama creada por el job previo
-            git fetch origin "${BRANCH_NAME}" || true
-            if git ls-remote --exit-code origin "${BRANCH_NAME}" >/dev/null 2>&1; then
-              git checkout "${BRANCH_NAME}"
-              git pull origin "${BRANCH_NAME}" || true
-            else
-              echo "❌ ERROR: La rama '${BRANCH_NAME}' no existe en remoto. Debería haber sido creada por create-update-branch."
-              exit 1
-            fi
-
-            git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
-                       -m "Version: ${VERSION}" \
-                       -m "Commit origen: ${{ github.sha }}" \
-                       -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
-            
-            git push origin "${BRANCH_NAME}"
-            
-            echo "✅ Cambios empujados a la rama '${BRANCH_NAME}' en ArgoCD"
+            exit 0
           fi
-        env:
-          GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
+
+          git commit -m "chore: Actualizar imagen de ${SERVICE} a ${IMAGE_TAG} [skip ci]" \
+                     -m "Version: ${VERSION}" \
+                     -m "Commit origen: ${{ github.sha }}" \
+                     -m "Actualizacion automatica desde CI/CD del repositorio ${SERVICE}"
+
+          # Intentar push con reintentos y rebase en caso de rechazo
+          ATTEMPTS=0
+          MAX_ATTEMPTS=3
+          until [ $ATTEMPTS -ge $MAX_ATTEMPTS ]
+          do
+            if git push origin "${BRANCH_NAME}"; then
+              echo "✅ Cambios empujados a la rama '${BRANCH_NAME}' en ArgoCD"
+              break
+            fi
+            ATTEMPTS=$((ATTEMPTS+1))
+            echo "⚠️ Push rechazado. Intentando rebase (intento ${ATTEMPTS}/${MAX_ATTEMPTS})..."
+            git fetch origin "${BRANCH_NAME}" || true
+            git pull --rebase origin "${BRANCH_NAME}" || { echo "⚠️ Rebase fallido, intentando abortar..."; git rebase --abort || true; }
+          done
+
+          if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
+            echo "❌ No se pudo empujar los cambios tras ${MAX_ATTEMPTS} intentos."
+            exit 1
+          fi
 
       - name: Resumen ArgoCD
         run: |
