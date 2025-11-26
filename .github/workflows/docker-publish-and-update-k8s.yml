@@ -815,74 +815,74 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
-      - name: Enviar notificación a Slack
-        if: env.ENABLE_SLACK_NOTIFICATIONS == 'true'
-        uses: slackapi/slack-github-action@v2.0.0
-        with:
-          webhook-type: incoming-webhook
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
-          payload: |
-            {
-              "text": "❌ Workflow fallido en ${{ github.repository }}",
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "❌ CI/CD Workflow Fallido"
-                  }
-                },
-                {
-                  "type": "section",
-                  "fields": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Repositorio:*\n${{ github.repository }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Rama:*\n${{ github.ref_name }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Workflow:*\n${{ github.workflow }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Evento:*\n${{ github.event_name }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Commit:*\n<${{ github.event.head_commit.url }}|${{ github.sha }}>"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Autor:*\n${{ github.actor }}"
+      - name: Notificar fallos en Slack
+        run: |
+          if [ "${{ env.ENABLE_SLACK_NOTIFICATIONS }}" = "true" ]; then
+            echo "📤 Enviando notificación a Slack..."
+            curl -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -H 'Content-Type: application/json' \
+              -d '{
+                "text": "❌ Workflow fallido en ${{ github.repository }}",
+                "blocks": [
+                  {
+                    "type": "header",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "❌ CI/CD Workflow Fallido"
                     }
-                  ]
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Jobs fallidos:*\n${{ needs.tests.result == 'failure' && '• Tests\n' || '' }}${{ needs.build.result == 'failure' && '• Build\n' || '' }}${{ needs.push.result == 'failure' && '• Push\n' || '' }}${{ needs.create-update-branch.result == 'failure' && '• Create Update Branch\n' || '' }}${{ needs.update-kubernetes-manifest.result == 'failure' && '• Update Kubernetes Manifest\n' || '' }}${{ needs.update-argocd-manifest.result == 'failure' && '• Update ArgoCD Manifest\n' || '' }}${{ needs.create-update-pr.result == 'failure' && '• Create PR\n' || '' }}"
-                  }
-                },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": {
-                        "type": "plain_text",
-                        "text": "Ver Workflow"
+                  },
+                  {
+                    "type": "section",
+                    "fields": [
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Repositorio:*\n${{ github.repository }}"
                       },
-                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Rama:*\n${{ github.ref_name }}"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Workflow:*\n${{ github.workflow }}"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Evento:*\n${{ github.event_name }}"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Commit:*\n<${{ github.event.head_commit.url }}|${{ github.sha }}>"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Autor:*\n${{ github.actor }}"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*Jobs fallidos:*\n${{ needs.tests.result == 'failure' && '• Tests\n' || '' }}${{ needs.build.result == 'failure' && '• Build\n' || '' }}${{ needs.push.result == 'failure' && '• Push\n' || '' }}${{ needs.create-update-branch.result == 'failure' && '• Create Update Branch\n' || '' }}${{ needs.update-kubernetes-manifest.result == 'failure' && '• Update Kubernetes Manifest\n' || '' }}${{ needs.update-argocd-manifest.result == 'failure' && '• Update ArgoCD Manifest\n' || '' }}${{ needs.create-update-pr.result == 'failure' && '• Create PR\n' || '' }}"
                     }
-                  ]
-                }
-              ]
-            }
-      - name: Notificaciones deshabilitadas
-        if: env.ENABLE_SLACK_NOTIFICATIONS != 'true'
-        run: echo "Slack deshabilitado (ENABLE_SLACK_NOTIFICATIONS != 'true')"
+                  },
+                  {
+                    "type": "actions",
+                    "elements": [
+                      {
+                        "type": "button",
+                        "text": {
+                          "type": "plain_text",
+                          "text": "Ver Workflow"
+                        },
+                        "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                      }
+                    ]
+                  }
+                ]
+              }'
+            echo "✅ Notificación enviada a Slack"
+          else
+            echo "ℹ️ No se han enviado alertas a Slack (ENABLE_SLACK_NOTIFICATIONS != 'true')"
+          fi
