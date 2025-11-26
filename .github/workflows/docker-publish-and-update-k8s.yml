@@ -246,7 +246,7 @@ jobs:
         with:
           files: ./coverage/lcov.info
           flags: unittests
-          name: backend-coverage
+          name: ${{ github.event.repository.name }}-coverage
 
 ## JOB PARA COMPILAR LA IMAGEN DOCKER (SIN PUBLICAR) ##
   build:
