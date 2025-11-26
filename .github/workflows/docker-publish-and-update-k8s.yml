@@ -263,7 +263,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       image_tag: ${{ steps.version.outputs.image_tag }}
       short_sha: ${{ steps.version.outputs.short_sha }}
-      has-vulnerabilities: ${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}
+      has-vulnerabilities: ${{ steps.final-vulnerabilities.outputs.has-vulnerabilities }}
 
     steps:
       - name: Clonar repositorio
@@ -412,12 +412,29 @@ jobs:
           fi
 
       - name: Omitir Snyk porque el repositorio es privado o Snyk está deshabilitado
+        id: skip-snyk
         if: github.event.repository.private == true || env.ENABLE_SNYK == 'false'
         run: |
+          # Establecer has-vulnerabilities=false cuando Snyk está deshabilitado
+          echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+          
           if [ "${{ github.event.repository.private }}" = "true" ]; then
             echo "ℹ️ Snyk omitido: el repositorio no es público." >> $GITHUB_STEP_SUMMARY
           else
             echo "ℹ️ Snyk omitido: deshabilitado mediante ENABLE_SNYK=false." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Consolidar resultado de vulnerabilidades
+        id: final-vulnerabilities
+        if: always()
+        run: |
+          # Si check-vulnerabilities se ejecutó, usar su resultado; si no, usar el de skip-snyk (false por defecto)
+          if [ "${{ steps.check-vulnerabilities.outcome }}" != "skipped" ]; then
+            echo "has-vulnerabilities=${{ steps.check-vulnerabilities.outputs.has-vulnerabilities }}" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.skip-snyk.outcome }}" != "skipped" ]; then
+            echo "has-vulnerabilities=${{ steps.skip-snyk.outputs.has-vulnerabilities }}" >> $GITHUB_OUTPUT
+          else
+            echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Resumen de imagen compilada
