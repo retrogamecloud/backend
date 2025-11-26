@@ -414,10 +414,10 @@ jobs:
       - name: Omitir Snyk porque el repositorio es privado o Snyk está deshabilitado
         if: github.event.repository.private == true || env.ENABLE_SNYK == 'false'
         run: |
-          if [ "${{ env.ENABLE_SNYK }}" = "false" ]; then
-            echo "ℹ️ Snyk omitido: deshabilitado mediante ENABLE_SNYK=false." >> $GITHUB_STEP_SUMMARY
-          else
+          if [ "${{ github.event.repository.private }}" = "true" ]; then
             echo "ℹ️ Snyk omitido: el repositorio no es público." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ Snyk omitido: deshabilitado mediante ENABLE_SNYK=false." >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Resumen de imagen compilada
