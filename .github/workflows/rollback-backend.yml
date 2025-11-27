@@ -79,6 +79,23 @@ jobs:
             exit 0
           fi
           
+          # Asegurar que las etiquetas existan en el repositorio destino
+          echo "Verificando/creando labels requeridos..."
+          for lbl in rollback urgent; do
+            if ! gh label list --repo ${{ env.K8S_REPO }} | grep -E "^${lbl}\b" > /dev/null; then
+              echo "Creando label: ${lbl}"
+              # Colores por defecto: rollback (rojo), urgent (naranja)
+              case "$lbl" in
+                rollback)
+                  gh label create rollback --color FF0000 --description "Cambios de rollback" --repo ${{ env.K8S_REPO }} || true
+                  ;;
+                urgent)
+                  gh label create urgent --color F29513 --description "Acción prioritaria" --repo ${{ env.K8S_REPO }} || true
+                  ;;
+              esac
+            fi
+          done
+
           if [ "$EMERGENCY" = "true" ]; then
             # MODO EMERGENCIA: Commit directo a main (ArgoCD lo sincroniza inmediatamente)
             echo "🚨 MODO EMERGENCIA: Aplicando rollback directo a main"
@@ -111,7 +128,7 @@ jobs:
               --head "${BRANCH_NAME}" \
               --title "🔙 ROLLBACK: ${SERVICE} a ${VERSION}" \
               --body "Rollback de ${SERVICE} - Version: ${VERSION}, Razon: ${REASON}, Ejecutado por: ${{ github.actor }}" \
-              --label "rollback,urgent"
+              --label rollback --label urgent
             
             echo "✅ PR de rollback creado. Aprobar para que ArgoCD sincronice."
           fi
