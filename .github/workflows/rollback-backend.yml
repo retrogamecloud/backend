@@ -21,6 +21,7 @@ env:
   DOCKERHUB_ORG: retrogamehub
   K8S_REPO: retrogamecloud/kubernetes
   K8S_MANIFEST_FILE: 02-backend.yaml
+  ARGOCD_MANIFEST_FILE: argocd/base/backend-deployment.yaml
 
 jobs:
   rollback:
@@ -55,9 +56,15 @@ jobs:
           REASON="${{ github.event.inputs.reason }}"
           SERVICE="${{ github.event.repository.name }}"
           
-          # Actualizar manifiesto
+          # Actualizar manifiesto de Kubernetes
           sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${VERSION}|g" ${{ env.K8S_MANIFEST_FILE }}
           sed -i "s|# Imagen del ${SERVICE} desde DockerHub.*|# Imagen del ${SERVICE} desde DockerHub - ROLLBACK a ${VERSION}|g" ${{ env.K8S_MANIFEST_FILE }}
+          
+          # Actualizar manifiesto de ArgoCD
+          sed -i "s|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:.*|image: ${{ env.DOCKERHUB_ORG }}/${SERVICE}:${VERSION}|g" ${{ env.ARGOCD_MANIFEST_FILE }}
+          sed -i "s|# Imagen de ${SERVICE} desde DockerHub.*|# Imagen de ${SERVICE} desde DockerHub - ROLLBACK a ${VERSION}|g" ${{ env.ARGOCD_MANIFEST_FILE }}
+          
+          echo "✅ Manifiestos actualizados con imagen: ${VERSION}"
 
       - name: Configurar Git
         run: |
@@ -71,7 +78,7 @@ jobs:
           SERVICE="${{ github.event.repository.name }}"
           EMERGENCY="${{ github.event.inputs.emergency }}"
           
-          git add ${{ env.K8S_MANIFEST_FILE }}
+          git add ${{ env.K8S_MANIFEST_FILE }} ${{ env.ARGOCD_MANIFEST_FILE }}
           
           # Verificar si hay cambios
           if git diff --staged --quiet; then
