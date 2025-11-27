@@ -827,21 +827,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
 
-## JOB DE PRUEBA QUE FALLA INTENCIONALMENTE ##
-  test-failure:
-    needs: [create-update-pr]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Simular fallo
-        run: |
-          echo "🚨 Este job está configurado para fallar intencionalmente"
-          echo "Probando notificación de Slack..."
-          exit 1
-
 ## JOB PARA NOTIFICAR FALLOS EN SLACK ##
   notify-slack:
-    needs: [eslint-prettier, check-changes, tests, build, push, create-update-branch, update-kubernetes-manifest, update-argocd-manifest, create-update-pr, test-failure]
+    needs: [eslint-prettier, check-changes, tests, build, push, create-update-branch, update-kubernetes-manifest, update-argocd-manifest, create-update-pr]
     if: >-
       always() &&
       (
@@ -851,8 +839,7 @@ jobs:
         needs.create-update-branch.result == 'failure' ||
         needs.update-kubernetes-manifest.result == 'failure' ||
         needs.update-argocd-manifest.result == 'failure' ||
-        needs.create-update-pr.result == 'failure' ||
-        needs.test-failure.result == 'failure'
+        needs.create-update-pr.result == 'failure'
       )
     runs-on: ubuntu-latest
     steps:
@@ -905,7 +892,7 @@ jobs:
                     "type": "section",
                     "text": {
                       "type": "mrkdwn",
-                      "text": "*Jobs fallidos:*\n${{ needs.tests.result == 'failure' && '• Tests\n' || '' }}${{ needs.build.result == 'failure' && '• Build\n' || '' }}${{ needs.push.result == 'failure' && '• Push\n' || '' }}${{ needs.create-update-branch.result == 'failure' && '• Create Update Branch\n' || '' }}${{ needs.update-kubernetes-manifest.result == 'failure' && '• Update Kubernetes Manifest\n' || '' }}${{ needs.update-argocd-manifest.result == 'failure' && '• Update ArgoCD Manifest\n' || '' }}${{ needs.create-update-pr.result == 'failure' && '• Create PR\n' || '' }}${{ needs.test-failure.result == 'failure' && '• Test Failure (Intencional)\n' || '' }}"
+                      "text": "*Jobs fallidos:*\n${{ needs.tests.result == 'failure' && '• Tests\n' || '' }}${{ needs.build.result == 'failure' && '• Build\n' || '' }}${{ needs.push.result == 'failure' && '• Push\n' || '' }}${{ needs.create-update-branch.result == 'failure' && '• Create Update Branch\n' || '' }}${{ needs.update-kubernetes-manifest.result == 'failure' && '• Update Kubernetes Manifest\n' || '' }}${{ needs.update-argocd-manifest.result == 'failure' && '• Update ArgoCD Manifest\n' || '' }}${{ needs.create-update-pr.result == 'failure' && '• Create PR\n' || '' }}"
                     }
                   },
                   {
