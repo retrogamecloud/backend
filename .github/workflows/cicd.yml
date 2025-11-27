@@ -1,4 +1,4 @@
-name: Compilar, Publicar y Actualizar Kubernetes
+name: Testear, compilar, publicar y PR a /kubernetes
 
 on:
   push:
