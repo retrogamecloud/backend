@@ -80,23 +80,6 @@ jobs:
             exit 0
           fi
           
-          # Asegurar que las etiquetas existan en el repositorio destino
-          echo "Verificando/creando labels requeridos..."
-          for lbl in rollback urgent; do
-            if ! gh label list --repo ${{ env.K8S_REPO }} | grep -E "^${lbl}\b" > /dev/null; then
-              echo "Creando label: ${lbl}"
-              # Colores por defecto: rollback (rojo), urgent (naranja)
-              case "$lbl" in
-                rollback)
-                  gh label create rollback --color FF0000 --description "Cambios de rollback" --repo ${{ env.K8S_REPO }} || true
-                  ;;
-                urgent)
-                  gh label create urgent --color F29513 --description "Acción prioritaria" --repo ${{ env.K8S_REPO }} || true
-                  ;;
-              esac
-            fi
-          done
-
           # Crear PR para revisión
           BRANCH_NAME="rollback/${SERVICE}-${VERSION}-$(date +%s)"
           
