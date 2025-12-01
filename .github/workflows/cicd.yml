@@ -808,7 +808,9 @@ jobs:
               --base main \
               --head "${BRANCH_NAME}" \
               --title "chore(${SERVICE}): Actualizar manifiestos a ${IMAGE_TAG}" \
-              --body "Actualizacion automatica de ${SERVICE}: Kubernetes: ${{ env.K8S_MANIFEST_FILE }} || ArgoCD: ${{ env.ARGOCD_MANIFEST_FILE }} || Version: ${VERSION} || Tag: ${IMAGE_TAG} || Commit: ${{ github.sha }}"
+              --body "Actualizacion automatica de ${SERVICE}: Kubernetes: ${{ env.K8S_MANIFEST_FILE }} || ArgoCD: ${{ env.ARGOCD_MANIFEST_FILE }} || Version: ${VERSION} || Tag: ${IMAGE_TAG} || Commit: ${{ github.sha }}" \
+              --label "auto" \
+              --label "images"
             echo "✅ PR creada con ambos cambios"
             PR_URL=$(gh pr view "${BRANCH_NAME}" --repo ${{ env.K8S_REPO }} --json url -q .url)
           fi
