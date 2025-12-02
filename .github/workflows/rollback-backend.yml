@@ -11,11 +11,6 @@ on:
         description: 'Razón del rollback'
         required: true
         type: string
-      emergency:
-        description: 'Rollback de emergencia (auto-merge sin PR para ArgoCD)'
-        required: false
-        type: boolean
-        default: false
 
 env:
   DOCKERHUB_ORG: retrogamehub
@@ -76,7 +71,6 @@ jobs:
           VERSION="${{ github.event.inputs.version }}"
           REASON="${{ github.event.inputs.reason }}"
           SERVICE="${{ github.event.repository.name }}"
-          EMERGENCY="${{ github.event.inputs.emergency }}"
           
           git add ${{ env.K8S_MANIFEST_FILE }} ${{ env.ARGOCD_MANIFEST_FILE }}
           
@@ -86,82 +80,36 @@ jobs:
             exit 0
           fi
           
-          # Asegurar que las etiquetas existan en el repositorio destino
-          echo "Verificando/creando labels requeridos..."
-          for lbl in rollback urgent; do
-            if ! gh label list --repo ${{ env.K8S_REPO }} | grep -E "^${lbl}\b" > /dev/null; then
-              echo "Creando label: ${lbl}"
-              # Colores por defecto: rollback (rojo), urgent (naranja)
-              case "$lbl" in
-                rollback)
-                  gh label create rollback --color FF0000 --description "Cambios de rollback" --repo ${{ env.K8S_REPO }} || true
-                  ;;
-                urgent)
-                  gh label create urgent --color F29513 --description "Acción prioritaria" --repo ${{ env.K8S_REPO }} || true
-                  ;;
-              esac
-            fi
-          done
-
-          if [ "$EMERGENCY" = "true" ]; then
-            # MODO EMERGENCIA: Commit directo a main (ArgoCD lo sincroniza inmediatamente)
-            echo "🚨 MODO EMERGENCIA: Aplicando rollback directo a main"
-            
-            git commit -m "🚨 ROLLBACK EMERGENCIA: Restaurar ${SERVICE} a ${VERSION}" \
-                       -m "Razón: ${REASON}" \
-                       -m "Ejecutado por: ${{ github.actor }}" \
-                       -m "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-                       -m "[skip ci]"
-            
-            git push origin main
-            
-            echo "✅ Rollback aplicado directamente. ArgoCD sincronizará automáticamente."
-          else
-            # MODO NORMAL: Crear PR para revisión
-            BRANCH_NAME="rollback/${SERVICE}-${VERSION}-$(date +%s)"
-            
-            git checkout -b "${BRANCH_NAME}"
-            
-            git commit -m "🔙 ROLLBACK: Restaurar ${SERVICE} a ${VERSION}" \
-                       -m "Razón: ${REASON}" \
-                       -m "Ejecutado por: ${{ github.actor }}" \
-                       -m "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            
-            git push origin "${BRANCH_NAME}"
-            
-            gh pr create \
-              --repo ${{ env.K8S_REPO }} \
-              --base main \
-              --head "${BRANCH_NAME}" \
-              --title "🔙 ROLLBACK: ${SERVICE} a ${VERSION}" \
-              --body "Rollback de ${SERVICE} - Version: ${VERSION}, Razon: ${REASON}, Ejecutado por: ${{ github.actor }}" \
-              --label rollback --label urgent
-            
-            echo "✅ PR de rollback creado. Aprobar para que ArgoCD sincronice."
-          fi
+          # Crear PR para revisión
+          BRANCH_NAME="rollback/${SERVICE}-${VERSION}-$(date +%s)"
+          
+          git checkout -b "${BRANCH_NAME}"
+          
+          git commit -m "🔙 ROLLBACK: Restaurar ${SERVICE} a ${VERSION}" \
+                     -m "Razón: ${REASON}" \
+                     -m "Ejecutado por: ${{ github.actor }}" \
+                     -m "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          git push origin "${BRANCH_NAME}"
+          
+          gh pr create \
+            --repo ${{ env.K8S_REPO }} \
+            --base main \
+            --head "${BRANCH_NAME}" \
+            --title "🔙 ROLLBACK: ${SERVICE} a ${VERSION}" \
+            --body "Rollback de ${SERVICE} - Version: ${VERSION}, Razon: ${REASON}, Ejecutado por: ${{ github.actor }}" \
+            --label rollback --label urgent
+          
+          echo "✅ PR de rollback creado. Aprobar para que ArgoCD sincronice."
         env:
           GH_TOKEN: ${{ secrets.K8S_UPDATE_TOKEN }}
 
       - name: Notificar resultado
         run: |
-          EMERGENCY="${{ github.event.inputs.emergency }}"
-          
-          if [ "$EMERGENCY" = "true" ]; then
-            echo "## 🚨 Rollback de Emergencia Aplicado" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "- **Versión restaurada**: ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Razón**: ${{ github.event.inputs.reason }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Ejecutado por**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Modo**: EMERGENCIA (commit directo a main)" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "✅ **ArgoCD sincronizará automáticamente en ~30 segundos**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "## ✅ Rollback Iniciado" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "- **Versión restaurada**: ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Razón**: ${{ github.event.inputs.reason }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Ejecutado por**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Modo**: Normal (requiere aprobación)" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ **Acción requerida**: Aprobar el PR → ArgoCD sincronizará automáticamente" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "## ✅ Rollback Iniciado" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versión restaurada**: ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Razón**: ${{ github.event.inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ejecutado por**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Acción requerida**: Aprobar el PR → ArgoCD sincronizará automáticamente" >> $GITHUB_STEP_SUMMARY
