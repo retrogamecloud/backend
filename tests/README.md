@@ -596,12 +596,6 @@ node --version # Debe ser v20.19.5
 
 ---
 
-## 🤝 Contribuir
-
-Ver: [CONTRIBUTING.md](../../.github/CONTRIBUTING.md)
-
----
-
 **Última actualización:** 1 de diciembre de 2025  
 **Versión:** 2.0  
 **Mantenedor:** RetroGameCloud Backend Team
