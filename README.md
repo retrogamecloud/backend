@@ -1,6 +1,6 @@
 # RetroGameCloud - Backend Service
 
-[![CI/CD Pipeline](https://github.com/retrogamecloud/backend/actions/workflows/docker-publish-and-update-k8s.yml/badge.svg)](https://github.com/retrogamecloud/backend/actions/workflows/docker-publish-and-update-k8s.yml)
+[![CI/CD Pipeline](https://github.com/retrogamecloud/backend/actions/workflows/cicd.yml/badge.svg)](https://github.com/retrogamecloud/backend/actions/workflows/cicd.yml)
 [![Docker Hub](https://img.shields.io/docker/v/retrogamehub/backend?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/retrogamehub/backend)
 [![GHCR](https://img.shields.io/badge/GHCR-latest-blue?logo=github)](https://github.com/retrogamecloud/backend/pkgs/container/backend)
 [![codecov](https://codecov.io/gh/retrogamecloud/backend/branch/main/graph/badge.svg)](https://codecov.io/gh/retrogamecloud/backend)
