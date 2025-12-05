@@ -707,13 +707,6 @@ backend/
         ├── cicd.yml              # Pipeline CI/CD (Testing, Linting, Build, Deploy)
         └── rollback-backend.yml  # Rollback manual
 
-### Workflows CI/CD
-
-| Workflow | Activación | Acciones |
-|---|---|---|
-| **cicd.yml** | Push a `main` | Jest (70%), ESLint, Trivy, SonarCloud, Docker build, K8s deploy |
-| **rollback-backend.yml** | Manual trigger | Revertir a versión anterior en K8s |
-| **dependabot.yml** | Scheduled (diario) | Actualizar dependencias de npm automáticamente |
 ```
 
 ---
