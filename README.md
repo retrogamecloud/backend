@@ -1,6 +1,6 @@
-# 🗄️ RetroGameCloud - Backend Service
+# RetroGameCloud - Backend Service
 
-[![CI/CD Pipeline](https://github.com/retrogamecloud/backend/actions/workflows/docker-publish-and-update-k8s.yml/badge.svg)](https://github.com/retrogamecloud/backend/actions/workflows/docker-publish-and-update-k8s.yml)
+[![CI/CD Pipeline](https://github.com/retrogamecloud/backend/actions/workflows/cicd.yml/badge.svg)](https://github.com/retrogamecloud/backend/actions/workflows/cicd.yml)
 [![Docker Hub](https://img.shields.io/docker/v/retrogamehub/backend?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/retrogamehub/backend)
 [![GHCR](https://img.shields.io/badge/GHCR-latest-blue?logo=github)](https://github.com/retrogamecloud/backend/pkgs/container/backend)
 [![codecov](https://codecov.io/gh/retrogamecloud/backend/branch/main/graph/badge.svg)](https://codecov.io/gh/retrogamecloud/backend)
@@ -9,12 +9,12 @@
 
 API REST centralizada para RetroGameCloud. Servicio monolítico que consolida autenticación, usuarios, puntuaciones y rankings en una única base de datos PostgreSQL. Implementa JWT Bearer tokens, bcrypt para seguridad, y auto-inicialización del esquema.
 
-**Documentación General:** 📖 [Ir al README Principal](./../README.md)  
-**Documentación Profesional:** 📚 [Acceder a docs.retrogamehub.games](https://docs.retrogamehub.games)
+**Documentación General:** [Ir al README Principal](https://github.com/retrogamecloud/.github/blob/main/README.md)  
+**Documentación Profesional:** [Acceder a la Wiki](https://www.retrogamehub.games/wiki)
 
 ---
 
-## 📋 Tabla de Contenidos
+## Tabla de Contenidos
 
 - [Descripción del Repositorio](#descripción-del-repositorio)
 - [Funcionalidad Principal](#funcionalidad-principal)
@@ -28,10 +28,12 @@ API REST centralizada para RetroGameCloud. Servicio monolítico que consolida au
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
 - [Rollback & Limpieza](#rollback--limpieza)
+- [Pipeline CI/CD](#pipeline-cicd)
+- [Seguridad y Secretos](#seguridad-y-secretos)
 
 ---
 
-## 📖 Descripción del Repositorio
+## Descripción del Repositorio
 
 Este repositorio contiene el **servicio backend unificado** de RetroGameCloud. Es la API central que:
 
@@ -46,7 +48,7 @@ Este repositorio contiene el **servicio backend unificado** de RetroGameCloud. E
 
 ---
 
-## 🎯 Funcionalidad Principal
+## Funcionalidad Principal
 
 ### 1. Autenticación de Usuarios
 
@@ -124,7 +126,7 @@ POST /api/games (admin)
 
 ---
 
-## 📦 Stack Tecnológico
+## Stack Tecnológico
 
 ### Infraestructura
 
@@ -159,7 +161,7 @@ POST /api/games (admin)
 
 ---
 
-## 🚀 Instalación Local
+## Instalación Local
 
 ### Requisitos Previos
 
@@ -253,7 +255,7 @@ curl http://localhost:3000/health
 
 ---
 
-## ⚙️ Configuración
+## Configuración
 
 ### Variables de Entorno
 
@@ -282,7 +284,7 @@ Ver **[`SECRETS-STRATEGY.md`](../.github/docs/SECRETS-STRATEGY.md)** para manejo
 
 ---
 
-## 🐳 Despliegue con Docker
+## Despliegue con Docker
 
 ### Opción A: Docker Compose (Recomendado para desarrollo)
 
@@ -341,7 +343,7 @@ curl http://localhost:3000/health
 
 ---
 
-## 📝 NPM Scripts
+## NPM Scripts
 
 ### Ejecución
 
@@ -388,7 +390,7 @@ npm run test:watch
 
 ---
 
-## 📡 Endpoints de la API
+## Endpoints de la API
 
 ### Autenticación (/api/auth/*)
 
@@ -645,7 +647,7 @@ Content-Type: application/json
 
 ---
 
-## 📂 Estructura del Proyecto
+## Estructura del Proyecto
 
 ```
 backend/
@@ -678,10 +680,9 @@ backend/
 │   │   ├── userRepository.js    # DB queries para users
 │   │   └── scoreRepository.js   # DB queries para scores
 │   ├── services/
-│   │   ├── authService.js       # Lógica de negocio
-│   │   └── rankingService.js    # Cálculos de rankings
+│   │   └── authService.js       # Lógica de negocio (auth, users, scores, rankings)
 │   └── routes/
-│       └── routes.js            # Definición de rutas
+│       └── routes.js            # Definición de rutas API
 │
 ├── tests/
 │   ├── README.md                # Guía de testing
@@ -701,13 +702,16 @@ backend/
 │   └── lcov.info                # Datos de cobertura
 │
 └── .github/
+    ├── dependabot.yml             # Configuración de Dependabot (actualizaciones automáticas)
     └── workflows/
-        └── ci.yml               # Pipeline de CI/CD
+        ├── cicd.yml              # Pipeline CI/CD (Testing, Linting, Build, Deploy)
+        └── rollback-backend.yml  # Rollback manual
+
 ```
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ### Cobertura de Tests
 
@@ -770,7 +774,7 @@ tests/
 
 ---
 
-## ⚠️ Troubleshooting
+## Troubleshooting
 
 ### Error: Cannot find module 'express'
 
@@ -834,7 +838,7 @@ node --inspect-brk ./node_modules/.bin/jest
 
 ---
 
-## 🔄 Rollback & Limpieza
+## Rollback & Limpieza
 
 ### Rollback de Cambios
 
@@ -894,7 +898,40 @@ npm start
 
 ---
 
-## 🔐 Seguridad y Secretos
+---
+
+## Pipeline CI/CD
+
+Este repositorio implementa un pipeline CI/CD completamente automatizado mediante GitHub Actions que valida, construye y despliega el backend de forma segura.
+
+### Validaciones Automáticas
+
+Cada vez que haces un push o abre un Pull Request, se ejecutan automáticamente:
+
+✅ **Testing:** Jest con cobertura mínima 70% (`npm test`)  
+✅ **Linting:** ESLint valida la calidad del código (`npm run lint`)  
+✅ **Seguridad de Imágenes:** Trivy escanea vulnerabilidades en Docker  
+✅ **Análisis Estático:** SonarCloud detecta code smells, bugs y security hotspots  
+✅ **Build:** Se construye la imagen Docker y se pushea a GitHub Container Registry (GHCR)  
+✅ **Despliegue:** Actualiza automáticamente los manifiestos Kubernetes en el repositorio de infraestructura  
+
+### Workflows Disponibles
+
+| Workflow | Trigger | Descripción |
+|---|---|---|
+| **cicd.yml** | Push a `main`, PR | Testing, validación y despliegue automático |
+| **rollback-backend.yml** | Manual (workflow_dispatch) | Revertir a una versión anterior si es necesario |
+| **dependabot.yml** | Scheduled (diario) | Mantener dependencias actualizadas |
+
+**Documentación detallada:** Ver [`.github/README-WF.md`](./.github/README-WF.md) para más información sobre cada workflow, triggers, variables y secrets.
+
+---
+
+## Seguridad y Secretos
+
+### Ubicación de Secrets
+
+> **IMPORTANTE:** Todos los secrets del proyecto (credenciales API, claves JWT, contraseñas de BD, etc.) se almacenan **exclusivamente en AWS Secrets Manager** y **NO están en los repositorios públicos**. Este repositorio no contiene ninguna información sensible.
 
 ### Manejo de Secretos
 
@@ -950,7 +987,7 @@ app.use(cors({
 
 ---
 
-## 📊 Monitoreo
+## Monitoreo
 
 ### Health Check
 
@@ -984,7 +1021,7 @@ curl http://localhost:3000/metrics
 
 ---
 
-## 🏗️ Migración desde Microservicios
+## Migración desde Microservicios
 
 Este servicio **consolida** lo que antes eran 5 microservicios:
 
@@ -1005,12 +1042,23 @@ Este servicio **consolida** lo que antes eran 5 microservicios:
 
 ---
 
-## 📚 Enlaces Útiles
+## Enlaces Útiles
 
+### Documentación del Proyecto
 - **Documentación General:** [/README.md](/../README.md)
-- **Documentación Profesional:** [docs.retrogamehub.games](https://docs.retrogamehub.games)
+- **Documentación Profesional:** [Wiki](https://www.retrogamehub.games/wiki)
+- **Workflows CI/CD:** [.github/README-WF.md](./.github/README-WF.md)
 - **Testing Guide:** [tests/README.md](./tests/README.md)
 - **Secretos & Security:** [SECRETS-STRATEGY.md](../.github/docs/SECRETS-STRATEGY.md)
+
+### Repositorios Relacionados
+- [Frontend](https://github.com/retrogamecloud/frontend/blob/main/README.md)
+- [Kong Gateway](https://github.com/retrogamecloud/kong/blob/main/README.md)
+- [Kubernetes](https://github.com/retrogamecloud/kubernetes/blob/main/README.md)
+- [Infrastructure](https://github.com/retrogamecloud/infrastructure)
+- [Documentación Centralizada](https://github.com/retrogamecloud/docs)
+
+### Documentación Externa
 - **Express.js Docs:** https://expressjs.com/
 - **PostgreSQL Docs:** https://www.postgresql.org/docs/
 - **JWT.io:** https://jwt.io/
