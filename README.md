@@ -3,8 +3,6 @@
 [![CI/CD Pipeline](https://github.com/retrogamecloud/backend/actions/workflows/cicd.yml/badge.svg)](https://github.com/retrogamecloud/backend/actions/workflows/cicd.yml)
 [![Docker Hub](https://img.shields.io/docker/v/retrogamehub/backend?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/retrogamehub/backend)
 [![GHCR](https://img.shields.io/badge/GHCR-latest-blue?logo=github)](https://github.com/retrogamecloud/backend/pkgs/container/backend)
-[![codecov](https://codecov.io/gh/retrogamecloud/backend/branch/main/graph/badge.svg)](https://codecov.io/gh/retrogamecloud/backend)
-[![SonarCloud Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=retrogamecloud_backend&metric=alert_status)](https://sonarcloud.io/dashboard?id=retrogamecloud_backend)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 API REST centralizada para RetroGameCloud. Servicio monolítico que consolida autenticación, usuarios, puntuaciones y rankings en una única base de datos PostgreSQL. Implementa JWT Bearer tokens, bcrypt para seguridad, y auto-inicialización del esquema.
