@@ -48,7 +48,7 @@ export async function createApp(pool, secret) {
 
   // Manejo de rutas no encontradas
   app.use((req, res) => {
-    res.status(404).json({ error: 'Ruta no encontrada' });
+    res.status(404).json({ error: 'Ruta no encontrada.' });
   });
 
   // Manejo de errores global
