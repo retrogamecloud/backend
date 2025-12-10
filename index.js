@@ -54,7 +54,7 @@ export async function createApp(pool, secret) {
   // Manejo de errores global
   app.use((err, req, res, next) => {
     console.error('Error no manejado:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
+    res.status(500).json({ error: 'Error interno del servidor.' });
   });
 
   return app;
