@@ -1056,9 +1056,3 @@ Este servicio **consolida** lo que antes eran 5 microservicios:
 - **PostgreSQL Docs:** https://www.postgresql.org/docs/
 - **JWT.io:** https://jwt.io/
 - **Bcrypt:** https://www.npmjs.com/package/bcrypt
-
----
-
-**Última actualización:** 1 de diciembre de 2025  
-**Versión:** 1.0.0  
-**Mantenedor:** RetroGameCloud Team
