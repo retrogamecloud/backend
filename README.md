@@ -7,8 +7,8 @@
 
 API REST centralizada para RetroGameCloud. Servicio monolítico que consolida autenticación, usuarios, puntuaciones y rankings en una única base de datos PostgreSQL. Implementa JWT Bearer tokens, bcrypt para seguridad, y auto-inicialización del esquema.
 
-**Documentación General:** [Ir al README Principal](https://github.com/retrogamecloud/.github/blob/main/README.md)  
-**Documentación Profesional:** [Acceder a la Wiki](https://www.retrogamehub.games/wiki)
+**README general:** [Ir al README Principal](https://github.com/retrogamecloud/.github/blob/main/profile/README.md)  
+**Documentación:** [Acceder a la Wiki](https://retrogamecloud.mintlify.app/)
 
 ---
 
@@ -270,8 +270,6 @@ PORT=3000
 DATABASE_URL=postgresql://user:pass@aws-rds-endpoint:5432/db
 JWT_SECRET=<usar AWS Secrets Manager o similar>
 ```
-
-Ver **[`SECRETS-STRATEGY.md`](../.github/docs/SECRETS-STRATEGY.md)** para manejo seguro de secretos.
 
 ### Ubicación de Configuración
 
@@ -941,8 +939,6 @@ Reglas:
 - ✅ Validar secretos en startup
 - ✅ Rotarlos cada 90 días
 
-**Ver:** [SECRETS-STRATEGY.md](../.github/docs/SECRETS-STRATEGY.md)
-
 ### JWT Security
 
 ```javascript
@@ -1043,11 +1039,10 @@ Este servicio **consolida** lo que antes eran 5 microservicios:
 ## Enlaces Útiles
 
 ### Documentación del Proyecto
-- **Documentación General:** [/README.md](/../README.md)
-- **Documentación Profesional:** [Wiki](https://www.retrogamehub.games/wiki)
+- **README general:** [/README.md](/../README.md)
+- **Documentación:** [Wiki](https://retrogamecloud.mintlify.app/)
 - **Workflows CI/CD:** [.github/README-WF.md](./.github/README-WF.md)
 - **Testing Guide:** [tests/README.md](./tests/README.md)
-- **Secretos & Security:** [SECRETS-STRATEGY.md](../.github/docs/SECRETS-STRATEGY.md)
 
 ### Repositorios Relacionados
 - [Frontend](https://github.com/retrogamecloud/frontend/blob/main/README.md)
