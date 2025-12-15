@@ -1,319 +1,1058 @@
-# 🗄️ RetroGameCloud - Servicio Backend Unificado
+# RetroGameCloud - Backend Service
 
-[![CI/CD Pipeline](https://github.com/retrogamecloud/backend/actions/workflows/docker-publish-and-update-k8s.yml/badge.svg)](https://github.com/retrogamecloud/backend/actions/workflows/docker-publish-and-update-k8s.yml)
+[![CI/CD Pipeline](https://github.com/retrogamecloud/backend/actions/workflows/cicd.yml/badge.svg)](https://github.com/retrogamecloud/backend/actions/workflows/cicd.yml)
 [![Docker Hub](https://img.shields.io/docker/v/retrogamehub/backend?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/retrogamehub/backend)
 [![GHCR](https://img.shields.io/badge/GHCR-latest-blue?logo=github)](https://github.com/retrogamecloud/backend/pkgs/container/backend)
-[![codecov](https://codecov.io/gh/retrogamecloud/backend/branch/main/graph/badge.svg)](https://codecov.io/gh/retrogamecloud/backend)
-[![SonarCloud Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=retrogamecloud_backend&metric=alert_status)](https://sonarcloud.io/dashboard?id=retrogamecloud_backend)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Servicio backend unificado para RetroGameCloud. Consolida autenticación, usuarios, puntuaciones y rankings en una única base de datos PostgreSQL. Implementa JWT Bearer tokens, bcrypt, y auto-inicialización del esquema.
+API REST centralizada para RetroGameCloud. Servicio monolítico que consolida autenticación, usuarios, puntuaciones y rankings en una única base de datos PostgreSQL. Implementa JWT Bearer tokens, bcrypt para seguridad, y auto-inicialización del esquema.
 
-## 📋 Arquitectura del Sistema
+**README general:** [Ir al README Principal](https://github.com/retrogamecloud/.github/blob/main/profile/README.md)  
+**Documentación:** [Acceder a la Wiki](https://retrogamecloud.mintlify.app/)
+
+---
+
+## Tabla de Contenidos
+
+- [Descripción del Repositorio](#descripción-del-repositorio)
+- [Funcionalidad Principal](#funcionalidad-principal)
+- [Stack Tecnológico](#stack-tecnológico)
+- [Instalación Local](#instalación-local)
+- [Configuración](#configuración)
+- [Despliegue con Docker](#despliegue-con-docker)
+- [NPM Scripts](#npm-scripts)
+- [Endpoints de la API](#endpoints-de-la-api)
+- [Estructura del Proyecto](#estructura-del-proyecto)
+- [Testing](#testing)
+- [Troubleshooting](#troubleshooting)
+- [Rollback & Limpieza](#rollback--limpieza)
+- [Pipeline CI/CD](#pipeline-cicd)
+- [Seguridad y Secretos](#seguridad-y-secretos)
+
+---
+
+## Descripción del Repositorio
+
+Este repositorio contiene el **servicio backend unificado** de RetroGameCloud. Es la API central que:
+
+- ✅ Autentica usuarios con JWT + bcrypt
+- ✅ Gestiona perfiles y datos de usuarios
+- ✅ Registra y valida puntuaciones
+- ✅ Calcula rankings y estadísticas
+- ✅ Proporciona catálogo de juegos disponibles
+- ✅ Maneja refresh tokens para sesiones seguras
+
+**Antes de esta unificación**, existían 5 microservicios independientes (auth-service, user-service, score-service, ranking-service, game-catalog-service). Este servicio consolida todo en una base de código monolítica, más fácil de operar y mantener.
+
+---
+
+## Funcionalidad Principal
+
+### 1. Autenticación de Usuarios
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        FRONTEND                              │
-│                    (Puerto 8081)                             │
-│         HTML/CSS/JS + localStorage para tokens               │
-└──────────────────┬──────────────────────────────────────────┘
-                   │
-                   │ HTTP/REST
-                   ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    KONG API GATEWAY                          │
-│                      (Puerto 8000)                           │
-│         Enrutamiento + CORS + Rate Limiting                  │
-└──────────────────┬──────────────────────────────────────────┘
-                   │
-                   │ /api/auth/*
-                   │ /api/scores/*
-                   │ /api/rankings/*
-                   ▼
-┌─────────────────────────────────────────────────────────────┐
-│              DATABASE SERVICE (Puerto 3000)                  │
-│                    Node.js + Express                         │
-│                                                              │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  • Autenticación (JWT + bcrypt)                    │    │
-│  │  • Gestión de Usuarios                             │    │
-│  │  • Registro de Puntuaciones                        │    │
-│  │  • Rankings y Estadísticas                         │    │
-│  │  • Catálogo de Juegos                              │    │
-│  └────────────────────────────────────────────────────┘    │
-└──────────────────┬──────────────────────────────────────────┘
-                   │
-                   │ PostgreSQL Protocol
-                   ▼
-┌─────────────────────────────────────────────────────────────┐
-│              POSTGRESQL DATABASE                             │
-│                   (Puerto 5432)                              │
-│                                                              │
-│  Tablas:                                                     │
-│  ├── users (autenticación y perfiles)                       │
-│  ├── games (catálogo de juegos)                             │
-│  ├── scores (puntuaciones actuales)                         │
-│  ├── score_history (historial de cambios)                   │
-│  ├── user_stats (estadísticas agregadas)                    │
-│  └── refresh_tokens (gestión de sesiones)                   │
-│                                                              │
-│  🔧 Auto-inicialización de esquema al primer arranque       │
-└─────────────────────────────────────────────────────────────┘
+POST /api/auth/register
+POST /api/auth/login
+POST /api/auth/logout
+POST /api/auth/refresh
+GET /api/auth/verify
 ```
 
-## 🚀 Despliegue Rápido
+**Características:**
+- Registro sin confirmación de email (opcional)
+- Login con username/password
+- Tokens JWT con 24h expiración
+- Refresh tokens para renovación automática
+- Logout que invalida sesiones
 
-### Prerequisitos
+### 2. Gestión de Usuarios
 
-- Docker Engine 20.10+
-- Docker Compose 2.0+
-- Git
+```
+GET /api/users/{id}
+PUT /api/users/{id}
+GET /api/users/{id}/profile
+GET /api/users/{id}/stats
+```
 
-### Paso 1: Clonar el repositorio
+**Características:**
+- Perfiles personalizables (display_name, avatar_url, bio)
+- Estadísticas automáticas (juegos jugados, score total, etc.)
+- Historial de cambios auditable
+- Búsqueda y filtros
+
+### 3. Sistema de Puntuaciones
+
+```
+POST /api/scores
+GET /api/scores?user_id=1&game_id=1
+GET /api/scores/leaderboard
+```
+
+**Características:**
+- Validación de puntuaciones (no permitir valores imposibles)
+- Historial de cambios (score_history table)
+- Metadatos personalizables (nivel completado, tiempo, etc.)
+- Deduplicación automática
+
+### 4. Rankings y Estadísticas
+
+```
+GET /api/rankings/global
+GET /api/rankings/games/{game_id}
+GET /api/rankings/users/{user_id}
+```
+
+**Características:**
+- Rankings globales y por juego
+- Top 100 automático
+- Posición actual del usuario
+- Tendencias (mejorando/bajando)
+
+### 5. Catálogo de Juegos
+
+```
+GET /api/games
+GET /api/games/{game_id}
+POST /api/games (admin)
+```
+
+**Características:**
+- Listado de juegos con metadatos
+- Thumbnails y descripciones
+- Año, desarrollador, tags
+- Control de juegos (admin only)
+
+---
+
+## Stack Tecnológico
+
+### Infraestructura
+
+| Componente | Versión | Descripción |
+|---|---|---|
+| **Runtime** | Node.js 20.19.5 (LTS) | Servidor JavaScript |
+| **Framework** | Express.js 4.18.2 | API REST minimalista |
+| **Base de Datos** | PostgreSQL 15-alpine | BD relacional con auto-init |
+| **Autenticación** | jsonwebtoken 9.0.2 | Firmado de JWTs (HS256) |
+| **Hashing** | bcrypt 5.1.1 | Encriptación de contraseñas |
+| **CORS** | cors 2.8.5 | Cross-Origin Resource Sharing |
+| **Connection Pool** | pg 8.11.1 | Pool de conexiones PostgreSQL |
+
+### Development & Quality
+
+| Herramienta | Versión | Propósito |
+|---|---|---|
+| **Testing** | Jest 29.7.0 | Test runner principal |
+| **HTTP Testing** | Supertest 6.3.3 | Tests de endpoints |
+| **Linting** | ESLint 9.39.1 | Análisis estático de código |
+| **Formatting** | Prettier 3.6.2 | Formato automático |
+| **Quality** | SonarQube | Calidad de código (badges) |
+| **Coverage** | Jest Coverage | Cobertura mínima 70% |
+
+### Integración Externa
+
+- **GitHub Actions:** CI/CD para tests y builds
+- **SonarCloud:** Quality gates automatizados
+- **Codecov:** Reporte de cobertura
+- **GHCR:** Container Registry (GitHub)
+- **Docker Hub:** Publicación de imágenes (opcional)
+
+---
+
+## Instalación Local
+
+### Requisitos Previos
+
+- **Node.js 20+** ([Descargar](https://nodejs.org/))
+- **PostgreSQL 15+** ([Descargar](https://www.postgresql.org/download/)) O usar Docker
+- **Git** ([Descargar](https://git-scm.com/))
+
+### Paso 1: Clonar el Repositorio
 
 ```bash
-git clone https://github.com/retrogamecloud/database.git
-git clone https://github.com/retrogamecloud/frontend.git
-git clone https://github.com/retrogamecloud/infrastructure.git
-git clone https://github.com/retrogamecloud/kong.git
-cd database
+git clone https://github.com/retrogamecloud/backend.git
+cd backend
 ```
 
-### Paso 2: Configurar variables de entorno
+### Paso 2: Instalar Dependencias
 
 ```bash
-cp .env.example .env
+npm install
+
+# Instalar dependencias de dev si prefieres
+npm install --save-dev
 ```
 
-Edita el archivo `.env` y configura:
-- `JWT_SECRET`: Cambia a una clave segura para producción
-- `DATABASE_URL`: URL de conexión a PostgreSQL (por defecto ya configurada)
-
-### Paso 3: Levantar el sistema
+### Paso 3: Configurar Variables de Entorno
 
 ```bash
+# Copiar template
+cp .env.example .env.local
+
+# Editar con valores locales
+nano .env.local  # o usar tu editor favorito
+```
+
+**Variables requeridas:**
+
+```bash
+# .env.local
+NODE_ENV=development
+PORT=3000
+DATABASE_URL=postgresql://gamecloud:gamecloud@localhost:5432/retrogamecloud
+JWT_SECRET=$(openssl rand -base64 32)
+```
+
+### Paso 4: Crear Base de Datos
+
+```bash
+# Opción A: Si PostgreSQL está instalado localmente
+createdb -U postgres retrogamecloud
+
+# Opción B: Usar Docker
+docker run -d \
+  --name postgres-dev \
+  -e POSTGRES_DB=retrogamecloud \
+  -e POSTGRES_USER=gamecloud \
+  -e POSTGRES_PASSWORD=gamecloud \
+  -p 5432:5432 \
+  postgres:15-alpine
+```
+
+### Paso 5: Ejecutar Migraciones (Auto)
+
+```bash
+# El servicio las ejecuta automáticamente al arrancar
+# Pero puedes verificar manualmente:
+psql -U gamecloud -d retrogamecloud -f init-db/01-schema.sql
+```
+
+### Paso 6: Iniciar el Servicio
+
+```bash
+# Modo desarrollo (con nodemon)
+npm run dev  # si existe
+
+# O modo normal
+npm start
+
+# Deberías ver:
+# ✅ Server listening on http://localhost:3000
+# ✅ Database connected
+```
+
+### Verificar Instalación
+
+```bash
+# Testear API
+curl http://localhost:3000/health
+
+# Esperado:
+# {"status":"ok","timestamp":"2025-12-01T..."}
+```
+
+---
+
+## Configuración
+
+### Variables de Entorno
+
+```bash
+# Desarrollo
+NODE_ENV=development
+PORT=3000
+DATABASE_URL=postgresql://gamecloud:gamecloud@localhost:5432/retrogamecloud
+JWT_SECRET=tu-secret-key-aqui (generar con: openssl rand -base64 32)
+
+# Producción
+NODE_ENV=production
+PORT=3000
+DATABASE_URL=postgresql://user:pass@aws-rds-endpoint:5432/db
+JWT_SECRET=<usar AWS Secrets Manager o similar>
+```
+
+### Ubicación de Configuración
+
+- **Runtime:** `process.env.*`
+- **Base de datos:** `.env` → `process.env.DATABASE_URL`
+- **JWT:** `.env` → `process.env.JWT_SECRET`
+- **Puerto:** `.env` → `process.env.PORT`
+
+---
+
+## Despliegue con Docker
+
+### Opción A: Docker Compose (Recomendado para desarrollo)
+
+```bash
+# Desde root del proyecto
 docker-compose up -d
-```
 
-Esto iniciará automáticamente:
-- ✅ PostgreSQL (con inicialización automática del esquema)
-- ✅ Database Service (Node.js/Express)
-- ✅ Kong API Gateway
-- ✅ Frontend (interfaz web)
-- ✅ Games CDN (servidor de archivos estáticos)
-
-### Paso 4: Verificar el despliegue
-
-```bash
+# Verificar
 docker-compose ps
+
+# Logs
+docker-compose logs -f backend
+
+# Detener
+docker-compose down
 ```
 
-Deberías ver todos los servicios como `Up` y `healthy`:
+**Incluye automáticamente:**
+- PostgreSQL (con auto-init)
+- Backend
+- Kong Gateway
+- Frontend
+- Games CDN
 
-```
-NAME                       STATUS
-gamehub-postgres-db        Up (healthy)
-gamehub-database-service   Up
-gamehub-kong               Up (healthy)
-gamehub-frontend           Up
-gamehub-games-cdn          Up
-```
-
-### Paso 5: Acceder al sistema
-
-- **Aplicación Web**: http://localhost:8000
-- **API Gateway**: http://localhost:8000/api
-- **Frontend Directo**: http://localhost:8081
-- **Database Service**: http://localhost:3000
-
-## 📡 Endpoints de la API
-
-### Autenticación
+### Opción B: Docker Standalone
 
 ```bash
-# Registro de usuario
-POST http://localhost:8000/api/auth/register
+# Construir imagen
+docker build -t retrogamehub/backend:latest .
+
+# Ejecutar con BD externa
+docker run -d \
+  --name backend \
+  -p 3000:3000 \
+  -e DATABASE_URL="postgresql://user:pass@db-host:5432/db" \
+  -e JWT_SECRET="tu-secret" \
+  retrogamehub/backend:latest
+
+# Ver logs
+docker logs -f backend
+
+# Detener
+docker stop backend
+docker rm backend
+```
+
+### Verificar Despliegue
+
+```bash
+# Health check
+curl http://localhost:3000/health
+
+# Respuesta esperada:
+# {"status":"ok"}
+```
+
+---
+
+## NPM Scripts
+
+### Ejecución
+
+| Script | Comando | Descripción |
+|--------|---------|-------------|
+| `start` | `node index.js` | Inicia el servicio normalmente |
+| `start:refactored` | `node index.wrapper.js` | Inicia versión refactorizada (si existe) |
+| `dev` | `nodemon index.js` | Modo desarrollo (con auto-reload) |
+
+### Testing
+
+| Script | Comando | Descripción |
+|--------|---------|-------------|
+| `test` | `jest` | Ejecuta todos los tests |
+| `test:unit` | `jest tests/unit` | Solo tests unitarios |
+| `test:integration` | `jest tests/integration` | Solo tests de integración |
+| `test:coverage` | `jest --coverage` | Con reporte de cobertura |
+| `test:watch` | `jest --watch` | Modo watch (desarrollo) |
+
+### Calidad de Código
+
+| Script | Comando | Descripción |
+|--------|---------|-------------|
+| `lint` | `eslint .` | Analizar código |
+| `lint:fix` | `eslint . --fix` | Arreglar automáticamente |
+| `format` | `prettier --write .` | Formatear código |
+| `format:check` | `prettier --check .` | Verificar formato |
+
+### Ejemplo de Uso
+
+```bash
+# Ejecutar tests antes de commit
+npm test
+
+# Arreglar problemas de lint
+npm run lint:fix
+
+# Ver cobertura
+npm run test:coverage
+
+# Modo desarrollo (watch)
+npm run test:watch
+```
+
+---
+
+## Endpoints de la API
+
+### Autenticación (/api/auth/*)
+
+```bash
+# Registro
+POST /api/auth/register
 Content-Type: application/json
 
 {
   "username": "player1",
-  "email": "player1@retrogamecloud.local",
-  "password_hash": "securepassword"
+  "password": "securepass123",
+  "email": "player@example.com"
 }
+
+Respuesta:
+{
+  "user": {
+    "id": 1,
+    "username": "player1",
+    "email": "player@example.com"
+  }
+}
+
+---
 
 # Login
-POST http://localhost:8000/api/auth/login
+POST /api/auth/login
 Content-Type: application/json
 
 {
   "username": "player1",
-  "password_hash": "securepassword"
+  "password": "securepass123"
 }
 
-# Respuesta
+Respuesta:
 {
   "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "user": {
     "id": 1,
     "username": "player1"
   }
 }
+
+---
+
+# Logout
+POST /api/auth/logout
+Authorization: Bearer <accessToken>
+
+Respuesta: 204 No Content
+
+---
+
+# Refresh Token
+POST /api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "<token>"
+}
+
+Respuesta:
+{
+  "accessToken": "new-token...",
+  "refreshToken": "new-refresh-token..."
+}
+
+---
+
+# Verificar Token
+GET /api/auth/verify
+Authorization: Bearer <accessToken>
+
+Respuesta: { "valid": true, "user": {...} }
 ```
 
-### Puntuaciones (requiere autenticación)
+### Usuarios (/api/users/*)
 
 ```bash
-# Guardar puntuación
-POST http://localhost:8000/api/scores
+# Obtener perfil
+GET /api/users/:userId
+Authorization: Bearer <accessToken>
+
+# Respuesta
+{
+  "id": 1,
+  "username": "player1",
+  "display_name": "Player One",
+  "avatar_url": "https://...",
+  "bio": "Gamer retro",
+  "created_at": "2025-12-01T..."
+}
+
+---
+
+# Actualizar perfil
+PUT /api/users/:userId
 Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "game": "DOOM",
-  "score": 15000
+  "display_name": "Updated Name",
+  "avatar_url": "https://new-avatar.jpg",
+  "bio": "New bio"
 }
 
-# Obtener rankings de un juego
-GET http://localhost:8000/api/rankings/games/doom
+---
+
+# Obtener estadísticas
+GET /api/users/:userId/stats
+Authorization: Bearer <accessToken>
+
+# Respuesta
+{
+  "total_games_played": 42,
+  "total_score": 1500000,
+  "highest_score": 250000,
+  "favorite_game": "DOOM",
+  "last_played_at": "2025-12-01T..."
+}
 ```
 
-## 🗄️ Esquema de Base de Datos
-
-### Tabla: users
-```sql
-id              SERIAL PRIMARY KEY
-username        VARCHAR(50) UNIQUE NOT NULL
-email           VARCHAR(255) UNIQUE
-password_hash   VARCHAR(255) NOT NULL (bcrypt)
-display_name    VARCHAR(100)
-avatar_url      TEXT
-created_at      TIMESTAMP
-```
-
-### Tabla: scores
-```sql
-id              SERIAL PRIMARY KEY
-user_id         INTEGER REFERENCES users(id)
-game_id         INTEGER REFERENCES games(id)
-score           BIGINT NOT NULL
-metadata        JSONB
-created_at      TIMESTAMP
-```
-
-### Tabla: games
-```sql
-id              SERIAL PRIMARY KEY
-slug            VARCHAR(100) UNIQUE NOT NULL
-name            VARCHAR(100) NOT NULL
-description     TEXT
-year            INTEGER
-developer       VARCHAR(100)
-```
-
-## 🔧 Mantenimiento
-
-### Ver logs
+### Puntuaciones (/api/scores/*)
 
 ```bash
-# Logs del servicio de base de datos
-docker logs gamehub-database-service
+# Guardar puntuación
+POST /api/scores
+Authorization: Bearer <accessToken>
+Content-Type: application/json
 
-# Logs de PostgreSQL
-docker logs gamehub-postgres-db
+{
+  "game_id": 1,
+  "score": 25000,
+  "metadata": {
+    "level": 5,
+    "time_played": 300
+  }
+}
 
-# Logs de Kong
-docker logs gamehub-kong
+Respuesta:
+{
+  "id": 123,
+  "user_id": 1,
+  "game_id": 1,
+  "score": 25000,
+  "created_at": "2025-12-01T..."
+}
+
+---
+
+# Obtener scores del usuario
+GET /api/scores?user_id=1&game_id=1
+Authorization: Bearer <accessToken>
+
+# Respuesta
+[
+  {
+    "id": 123,
+    "user_id": 1,
+    "game_id": 1,
+    "score": 25000,
+    "created_at": "2025-12-01T..."
+  }
+]
 ```
 
-### Limpiar y reconstruir
+### Rankings (/api/rankings/*)
 
 ```bash
-# Detener y eliminar volúmenes
+# Rankings globales
+GET /api/rankings/global
+
+Respuesta:
+{
+  "rankings": [
+    {
+      "rank": 1,
+      "user_id": 5,
+      "username": "TopPlayer",
+      "score": 5000000
+    },
+    {
+      "rank": 2,
+      "user_id": 3,
+      "username": "SecondPlace",
+      "score": 4500000
+    }
+  ]
+}
+
+---
+
+# Rankings por juego
+GET /api/rankings/games/:gameId
+
+# Respuesta (igual formato, solo para ese juego)
+
+---
+
+# Posición actual del usuario
+GET /api/rankings/users/:userId/position
+
+Respuesta:
+{
+  "rank": 42,
+  "total_players": 1000,
+  "user_score": 500000,
+  "next_rank_score": 510000
+}
+```
+
+### Juegos (/api/games/*)
+
+```bash
+# Listar todos los juegos
+GET /api/games
+
+Respuesta:
+[
+  {
+    "id": 1,
+    "slug": "doom",
+    "name": "DOOM",
+    "description": "Classic first-person shooter",
+    "year": 1993,
+    "developer": "id Software",
+    "tags": ["shooter", "classic"],
+    "thumbnail": "https://..."
+  }
+]
+
+---
+
+# Obtener juego específico
+GET /api/games/:gameId
+
+---
+
+# Crear juego (admin only)
+POST /api/games
+Authorization: Bearer <adminToken>
+Content-Type: application/json
+
+{
+  "slug": "newgame",
+  "name": "New Game",
+  "description": "...",
+  "year": 2000,
+  "developer": "...",
+  "tags": ["action"]
+}
+```
+
+---
+
+## Estructura del Proyecto
+
+```
+backend/
+├── index.js                      # Punto de entrada (305 líneas)
+├── index.refactored.js          # Versión refactorizada
+├── index.wrapper.js             # Wrapper para testing
+├── package.json                 # Dependencias
+├── package-lock.json            # Lockfile
+├── Dockerfile                   # Imagen Docker
+├── docker-compose.yml           # Orquestación local
+├── jest.config.json             # Config de Jest
+├── eslint.config.js             # Config de ESLint
+├── sonar-project.properties     # Config de SonarQube
+├── .env.example                 # Variables de ejemplo
+├── README.md                    # Este archivo
+│
+├── init-db/
+│   └── 01-schema.sql           # Esquema SQL auto-ejecutable
+│
+├── src/
+│   ├── config/
+│   │   └── database.js          # Configuración de BD
+│   ├── controllers/
+│   │   ├── authController.js    # Lógica de autenticación
+│   │   ├── scoreController.js   # Lógica de puntuaciones
+│   │   └── rankingController.js # Lógica de rankings
+│   ├── middleware/
+│   │   └── authMiddleware.js    # Verificación de JWT
+│   ├── repositories/
+│   │   ├── userRepository.js    # DB queries para users
+│   │   └── scoreRepository.js   # DB queries para scores
+│   ├── services/
+│   │   └── authService.js       # Lógica de negocio (auth, users, scores, rankings)
+│   └── routes/
+│       └── routes.js            # Definición de rutas API
+│
+├── tests/
+│   ├── README.md                # Guía de testing
+│   ├── unit/
+│   │   ├── auth.test.js
+│   │   ├── authService.test.js
+│   │   ├── database.test.js
+│   │   └── ...
+│   └── integration/
+│       ├── api.test.js
+│       ├── rankings.test.js
+│       ├── scores.test.js
+│       └── ...
+│
+├── coverage/
+│   ├── index.html               # Reporte HTML (generado)
+│   └── lcov.info                # Datos de cobertura
+│
+└── .github/
+    ├── dependabot.yml             # Configuración de Dependabot (actualizaciones automáticas)
+    └── workflows/
+        ├── cicd.yml              # Pipeline CI/CD (Testing, Linting, Build, Deploy)
+        └── rollback-backend.yml  # Rollback manual
+
+```
+
+---
+
+## Testing
+
+### Cobertura de Tests
+
+La cobertura mínima es **70%**. Se valida en CI/CD:
+
+```bash
+# Ver reporte de cobertura
+npm run test:coverage
+
+# Generates:
+# coverage/index.html (abrir en navegador)
+# coverage/lcov.info (para CodeCov)
+```
+
+**Requisitos:**
+- Líneas (Statements): ≥ 70%
+- Funciones (Functions): ≥ 70%
+- Branches: ≥ 70%
+- Sentencias (Lines): ≥ 70%
+
+### Ejecutar Tests
+
+```bash
+# Todos
+npm test
+
+# Solo unitarios
+npm run test:unit
+
+# Solo integración
+npm run test:integration
+
+# Con cobertura
+npm run test:coverage
+
+# Modo watch (desarrollo)
+npm run test:watch
+```
+
+### Archivos de Test
+
+```
+tests/
+├── unit/
+│   ├── auth.test.js              # Test de autenticación
+│   ├── authMiddleware.test.js    # Middleware de JWT
+│   ├── authService.test.js       # Servicio de auth
+│   ├── database.test.js          # Conexión BD
+│   ├── repository.test.js        # Queries
+│   ├── service.test.js           # Lógica de negocio
+│   ├── userRepository.test.js    # CRUD de usuarios
+│   └── utils.test.js             # Funciones auxiliares
+└── integration/
+    ├── api.test.js               # Tests de endpoints
+    ├── app.test.js               # Startup de app
+    ├── database.test.js          # Integración con BD
+    ├── rankings.test.js          # Endpoints de rankings
+    └── scores.test.js            # Endpoints de scores
+```
+
+---
+
+## Troubleshooting
+
+### Error: Cannot find module 'express'
+
+```bash
+# Reinstalar dependencias
+rm -rf node_modules package-lock.json
+npm install
+```
+
+### Error: ECONNREFUSED (PostgreSQL)
+
+```bash
+# PostgreSQL no está corriendo
+# Opción 1: Iniciar Docker
+docker-compose up -d postgres-db
+
+# Opción 2: Verificar conectividad
+psql -h localhost -U gamecloud -d retrogamecloud
+
+# Opción 3: Revisar DATABASE_URL
+echo $DATABASE_URL
+```
+
+### Error: JWT_SECRET not configured
+
+```bash
+# Generar valor
+openssl rand -base64 32
+
+# Agregar a .env.local
+echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env.local
+```
+
+### Error: Port 3000 already in use
+
+```bash
+# Encontrar proceso
+lsof -i :3000  # macOS/Linux
+netstat -ano | findstr :3000  # Windows
+
+# Matar proceso
+kill -9 <PID>  # macOS/Linux
+taskkill /PID <PID> /F  # Windows
+
+# O usar puerto diferente
+PORT=3001 npm start
+```
+
+### Error: Tests fail
+
+```bash
+# Ver logs detallados
+npm test -- --verbose
+
+# Ejecutar test específico
+npm test -- auth.test.js
+
+# En modo debug
+node --inspect-brk ./node_modules/.bin/jest
+```
+
+---
+
+## Rollback & Limpieza
+
+### Rollback de Cambios
+
+```bash
+# Ver commit history
+git log --oneline -10
+
+# Volver a commit anterior
+git reset --hard <commit-hash>
+
+# O crear revert commit
+git revert <commit-hash>
+git push origin main
+```
+
+### Limpiar Base de Datos
+
+```bash
+# Borrar volumen de Docker
 docker-compose down -v
-
-# Limpiar sistema Docker
-docker system prune -af --volumes
 
 # Reconstruir desde cero
 docker-compose build --no-cache
 docker-compose up -d
+
+# Verificar
+docker-compose ps
 ```
 
-### Acceder a la base de datos
+### Limpiar Node Modules
 
 ```bash
-docker exec -it gamehub-postgres-db psql -U gamecloud -d retrogamecloud
+# Borrar cache de npm
+npm cache clean --force
 
-# Comandos útiles:
-# \dt           - Listar tablas
-# \d users      - Describir tabla users
-# SELECT COUNT(*) FROM users;
+# Reinstalar
+rm -rf node_modules package-lock.json
+npm install
 ```
 
-## 🔐 Seguridad
+### Resetear a Estado Inicial
 
-### Configuración de Producción
+```bash
+# Limpiar todo
+docker-compose down -v
+rm -rf node_modules
+rm -rf coverage
 
-1. **Cambiar JWT_SECRET** en `.env`:
-   ```bash
-   JWT_SECRET=$(openssl rand -base64 32)
-   ```
+# Reinstalar
+npm install
+npm run lint:fix
 
-2. **Cambiar credenciales de PostgreSQL** en `docker-compose.yml`:
-   ```yaml
-   POSTGRES_PASSWORD: <password-fuerte>
-   ```
-
-3. **Configurar rate limiting** en Kong para prevenir ataques
-
-4. **Usar HTTPS** con certificados SSL en producción
-
-### Tokens JWT
-
-- **Expiración**: 24 horas por defecto
-- **Algoritmo**: HS256
-- **Payload**: `{ userId, username }`
-- **Header**: `Authorization: Bearer <token>`
-
-## 📦 Estructura del Proyecto
-
-```
-database/
-├── .github/
-│   └── workflows/
-│       └── docker-publish.yml    # CI/CD para publicar imagen
-├── init-db/
-│   └── 01-schema.sql            # Esquema auto-inicializable
-├── index.js                     # Servicio principal (319 líneas)
-├── package.json                 # Dependencias Node.js
-├── Dockerfile                   # Imagen del servicio
-├── docker-compose.yml           # Orquestación completa
-├── .env.example                 # Variables de entorno
-└── README.md                    # Esta documentación
+# Levantar
+docker-compose up -d
+npm start
 ```
 
-## 🛠️ Tecnologías
+---
 
-- **Node.js 20 Alpine** - Runtime JavaScript
-- **Express 4.18** - Framework web
-- **PostgreSQL 15 Alpine** - Base de datos relacional
-- **jsonwebtoken 9.0** - Autenticación JWT
-- **bcrypt 5.1** - Hashing de contraseñas
-- **Kong 3.3 Alpine** - API Gateway
-- **Docker & Docker Compose** - Contenedorización
+---
 
-## 📚 Migración desde Microservicios
+## Pipeline CI/CD
 
-Este servicio unifica lo que antes eran 5 microservicios independientes:
-- `auth-service` → JWT + bcrypt integrado
-- `user-service` → Gestión de usuarios
-- `score-service` → Registro de puntuaciones
-- `ranking-service` → Cálculo de rankings
-- `game-catalog-service` → Catálogo de juegos
+Este repositorio implementa un pipeline CI/CD completamente automatizado mediante GitHub Actions que valida, construye y despliega el backend de forma segura.
 
-**Ventajas de la unificación:**
+### Validaciones Automáticas
+
+Cada vez que haces un push o abre un Pull Request, se ejecutan automáticamente:
+
+✅ **Testing:** Jest con cobertura mínima 70% (`npm test`)  
+✅ **Linting:** ESLint valida la calidad del código (`npm run lint`)  
+✅ **Seguridad de Imágenes:** Trivy escanea vulnerabilidades en Docker  
+✅ **Análisis Estático:** SonarCloud detecta code smells, bugs y security hotspots  
+✅ **Build:** Se construye la imagen Docker y se pushea a GitHub Container Registry (GHCR)  
+✅ **Despliegue:** Actualiza automáticamente los manifiestos Kubernetes en el repositorio de infraestructura  
+
+### Workflows Disponibles
+
+| Workflow | Trigger | Descripción |
+|---|---|---|
+| **cicd.yml** | Push a `main`, PR | Testing, validación y despliegue automático |
+| **rollback-backend.yml** | Manual (workflow_dispatch) | Revertir a una versión anterior si es necesario |
+| **dependabot.yml** | Scheduled (diario) | Mantener dependencias actualizadas |
+
+**Documentación detallada:** Ver [`.github/README-WF.md`](./.github/README-WF.md) para más información sobre cada workflow, triggers, variables y secrets.
+
+---
+
+## Seguridad y Secretos
+
+### Ubicación de Secrets
+
+> **IMPORTANTE:** Todos los secrets del proyecto (credenciales API, claves JWT, contraseñas de BD, etc.) se almacenan **exclusivamente en AWS Secrets Manager** y **NO están en los repositorios públicos**. Este repositorio no contiene ninguna información sensible.
+
+### Manejo de Secretos
+
+**⚠️ CRÍTICO:** Nunca commitear secretos a Git.
+
+Reglas:
+- ✅ Usar `.env.local` para desarrollo (ignorado en Git)
+- ✅ Usar AWS Secrets Manager para producción
+- ✅ Validar secretos en startup
+- ✅ Rotarlos cada 90 días
+
+### JWT Security
+
+```javascript
+// Validación en middleware
+const verifyJWT = (token) => {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch (error) {
+    // Token inválido, expirado o corrompido
+    throw new Error('Invalid token');
+  }
+};
+
+// Expiration: 24 horas
+const expiresIn = '24h';
+
+// Algoritmo: HS256 (HMAC)
+```
+
+### Bcrypt Configuration
+
+```javascript
+// Hash rounds: 10 (balance seguridad/performance)
+const saltRounds = 10;
+const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+// Verificación
+const isValid = await bcrypt.compare(inputPassword, hashedPassword);
+```
+
+### CORS Configuration
+
+```javascript
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:8081',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
+}));
+```
+
+---
+
+## Monitoreo
+
+### Health Check
+
+```bash
+# Verificar servicio está corriendo
+curl http://localhost:3000/health
+
+# Respuesta:
+# {"status":"ok","timestamp":"2025-12-01T...","uptime":1234}
+```
+
+### Logs
+
+```bash
+# Ver logs en tiempo real
+npm start  # Salen por stdout
+
+# Con Docker
+docker logs -f gamehub-database-service
+
+# Con Docker Compose
+docker-compose logs -f backend
+```
+
+### Métricas (con Prometheus opcional)
+
+Si está configurado:
+```bash
+curl http://localhost:3000/metrics
+```
+
+---
+
+## Migración desde Microservicios
+
+Este servicio **consolida** lo que antes eran 5 microservicios:
+
+| Antes | Ahora |
+|-------|-------|
+| `auth-service` | `/src/services/authService.js` |
+| `user-service` | `/src/services/userService.js` |
+| `score-service` | `/src/services/scoreService.js` |
+| `ranking-service` | `/src/services/rankingService.js` |
+| `game-catalog-service` | `/src/services/gameService.js` |
+
+**Ventajas:**
 - ✅ Menor complejidad operacional
-- ✅ Transacciones atómicas entre entidades
-- ✅ Reducción de latencia (sin llamadas entre servicios)
-- ✅ Base de datos única con esquema coherente
-- ✅ Despliegue simplificado# Test CI/CD - Sat Nov 22 07:54:00 CET 2025
+- ✅ Transacciones ACID entre servicios
+- ✅ Reducción de latencia (sin llamadas HTTP)
+- ✅ Base de datos única y coherente
+- ✅ Deployment simplificado
+
+---
+
+## Enlaces Útiles
+
+### Documentación del Proyecto
+- **README general:** [/README.md](/../README.md)
+- **Documentación:** [Wiki](https://retrogamecloud.mintlify.app/)
+- **Workflows CI/CD:** [.github/README-WF.md](./.github/README-WF.md)
+- **Testing Guide:** [tests/README.md](./tests/README.md)
+
+### Repositorios Relacionados
+- [Frontend](https://github.com/retrogamecloud/frontend/blob/main/README.md)
+- [Kong Gateway](https://github.com/retrogamecloud/kong/blob/main/README.md)
+- [Kubernetes](https://github.com/retrogamecloud/kubernetes/blob/main/README.md)
+- [Infrastructure](https://github.com/retrogamecloud/infrastructure)
+- [Documentación Centralizada](https://github.com/retrogamecloud/docs)
+
+### Documentación Externa
+- **Express.js Docs:** https://expressjs.com/
+- **PostgreSQL Docs:** https://www.postgresql.org/docs/
+- **JWT.io:** https://jwt.io/
+- **Bcrypt:** https://www.npmjs.com/package/bcrypt

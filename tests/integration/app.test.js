@@ -1,6 +1,6 @@
 import { describe, test, expect, jest, beforeAll } from '@jest/globals';
 import request from 'supertest';
-import { createApp } from '../../index.refactored.js';
+import { createApp } from '../../index.js';
 import { hashPassword } from '../../src/services/authService.js';
 
 describe('App Refactorizada - Tests de Integración Completos', () => {
