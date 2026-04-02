@@ -211,7 +211,7 @@ jobs:
         run: npm run test:coverage
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v7.0.0
+        uses: SonarSource/sonarqube-scan-action@v7.1.0
         continue-on-error: true
         id: sonar
         env:
@@ -241,7 +241,7 @@ jobs:
           fi
 
       - name: Subir reporte de cobertura
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         if: always()
         with:
           files: ./coverage/lcov.info
@@ -273,10 +273,10 @@ jobs:
           fetch-depth: 0
 
       - name: Configurar Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Iniciar sesión en GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_GHCR }}
           username: ${{ github.actor }}
@@ -313,7 +313,7 @@ jobs:
 
       - name: Extraer metadatos
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ github.event.repository.name }}
@@ -321,7 +321,7 @@ jobs:
             type=raw,value=${{ steps.version.outputs.image_tag }}
 
       - name: Compilar imagen Docker (cargada localmente)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -466,7 +466,7 @@ jobs:
 
     steps:
       - name: Configurar Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Clonar repositorio
         uses: actions/checkout@v6
@@ -480,21 +480,21 @@ jobs:
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Iniciar sesión en Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_DOCKERHUB }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Iniciar sesión en GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_GHCR }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compilar y publicar imagen en Docker Hub y GHCR
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
